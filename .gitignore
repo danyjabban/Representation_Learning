@@ -2,3 +2,5 @@
 *.ipynb_checkpoints
 IMDBDataset.csv
 */.idea
+*.pyc
+*.DS_Store
