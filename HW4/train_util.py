@@ -225,5 +225,5 @@ def test(net):
     num_val_steps = len(testloader)
     val_acc = correct / total
     print("Test Loss=%.4f, Test accuracy=%.4f" % (test_loss / (num_val_steps), val_acc))
-
+    return val_acc  # my addition,
 
