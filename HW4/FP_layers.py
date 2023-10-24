@@ -46,7 +46,7 @@ class STE(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, g):
-        return g, None
+        return g, None, None  # my addition to fix the "not enough outputs" bug
 
 class FP_Linear(nn.Module):
     def __init__(self, in_features, out_features, Nbits=None, symmetric=False):
