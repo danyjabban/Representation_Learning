@@ -138,7 +138,9 @@ def finetune(net, epochs, batch_size, lr, reg, log_every_n=50):
 
     global_steps = 0
     start = time.time()
-
+    
+    test_acc_list = []
+    
     for epoch in range(start_epoch, epochs):
         """
         Start the training code.
@@ -187,12 +189,15 @@ def finetune(net, epochs, batch_size, lr, reg, log_every_n=50):
                 correct += predicted.eq(targets).sum().item()
         num_val_steps = len(testloader)
         val_acc = correct / total
+        test_acc_list.append(val_acc)
         print("Test Loss=%.4f, Test acc=%.4f" % (test_loss / (num_val_steps), val_acc))
 
         if val_acc > best_acc:
             best_acc = val_acc
             print("Saving...")
             torch.save(net.state_dict(), "quantized_net_after_finetune.pt")
+    return test_acc_list  # my addition, originally doesn't return anything
+
 
 def test(net):
     transform_test = transforms.Compose([
@@ -225,5 +230,5 @@ def test(net):
     num_val_steps = len(testloader)
     val_acc = correct / total
     print("Test Loss=%.4f, Test accuracy=%.4f" % (test_loss / (num_val_steps), val_acc))
-    return val_acc  # my addition,
+    return val_acc  # my addition. Originally returns None
 
