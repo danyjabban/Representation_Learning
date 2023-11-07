@@ -45,13 +45,13 @@ class STE(torch.autograd.Function):
             else:  # if symmetric == True
                 # In symmetric quantization, the quantization levels are symmetric to zero.
                 abs_max_ = np.max(np.abs(flattened_np_weights))
-                alpha = abs_max_ * 2
+                alpha = abs_max_
                 beta = 0  # do not shift
                 
                 # Scale w with alpha and beta=0 so that all elements in ws are between -0.5 and 0.5
                 ws = ((w - beta) / alpha)
                 
-                step = (2 ** (bit)) - 1
+                step = (2 ** (bit - 1)) - 1
                 
                 # Quantize ws with a linear quantizer to "bit" bits
                 R = (1/step) * torch.round(step * ws)
