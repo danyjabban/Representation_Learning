@@ -1,7 +1,7 @@
 *.mat
 *.ipynb_checkpoints
 IMDBDataset.csv
-*/.idea
+**.idea
 *.pyc
 *.DS_Store
 HW4/data/
