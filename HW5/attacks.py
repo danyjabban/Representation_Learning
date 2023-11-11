@@ -24,7 +24,7 @@ def gradient_wrt_data(model,device,data,lbl):
 
 def PGD_attack(model, device, dat, lbl, eps, alpha, iters, rand_start):
     # TODO: Implement the PGD attack
-    # - dat and lbl are tensors
+    # - dat (data) and lbl (label) are tensors
     # - eps and alpha are floats
     # - iters is an integer
     # - rand_start is a bool
@@ -35,41 +35,48 @@ def PGD_attack(model, device, dat, lbl, eps, alpha, iters, rand_start):
 
     # If rand_start is True, add uniform noise to the sample within [-eps,+eps],
     # else just copy x_nat
-
-    # Make sure the sample is projected into original distribution bounds [0,1]
+    if rand_start:
+        x_nat_perturbed = x_nat + (torch.rand(x_nat.shape, device=device) * (2*eps) - eps)
+        # x_nat_perturbed = (x_nat_perturbed - x_nat_perturbed.min()) / x_nat_perturbed.max()
+        x_nat_perturbed = torch.clamp(x_nat_perturbed, min=0, max=1)
+        # Make sure the sample is projected into original distribution bounds [0,1]
+    else:
+        x_nat_perturbed = torch.clone(x_nat)
 
     # Iterate over iters
-
+    for iii in range(int(iters)):
         # Compute gradient w.r.t. data (we give you this function, but understand it)
-
+        grad_wrt_data = gradient_wrt_data(model, device, data=x_nat_perturbed, lbl=lbl)
         # Perturb the image using the gradient
-
+        x_nat_perturbed += torch.sign(grad_wrt_data) * alpha
         # Clip the perturbed datapoints to ensure we still satisfy L_infinity constraint
-
+        x_nat_perturbed = torch.clamp(x_nat_perturbed, min=x_nat_perturbed-eps, max=x_nat_perturbed+eps)
         # Clip the perturbed datapoints to ensure we are in bounds [0,1]
+        x_nat_perturbed = torch.clamp(x_nat_perturbed, min=0, max=1)
 
     # Return the final perturbed samples
-    return 0
+    return x_nat_perturbed, lbl
 
 
 def FGSM_attack(model, device, dat, lbl, eps):
     # TODO: Implement the FGSM attack
     # - Dat and lbl are tensors
     # - eps is a float
-
+    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=0, alpha=eps, iters=1, rand_start=False)
     # HINT: FGSM is a special case of PGD
-
-    return 0
+    return x_adv, lbl
 
 
 def rFGSM_attack(model, device, dat, lbl, eps):
     # TODO: Implement the FGSM attack
     # - Dat and lbl are tensors
     # - eps is a float
-
+    iters = 1
+    alpha = eps
+    eps = alpha * iters / 1.85
+    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=eps, alpha=alpha, iters=iters, rand_start=True)
     # HINT: rFGSM is a special case of PGD
-
-    return 0
+    return x_adv, lbl
 
 
 def FGM_L2_attack(model, device, dat, lbl, eps):
@@ -78,17 +85,20 @@ def FGM_L2_attack(model, device, dat, lbl, eps):
     x_nat = dat.clone().detach()
 
     # Compute gradient w.r.t. data
+    grad_wrt_data = gradient_wrt_data(model, device, data=x_nat.to(device), lbl=lbl.to(device))
+    # shape: [64, 1, 28, 28]
 
     # Compute sample-wise L2 norm of gradient (L2 norm for each batch element)
     # HINT: Flatten gradient tensor first, then compute L2 norm
+    grad_norm = torch.norm(grad_wrt_data, p=2, dim=(2, 3), keepdim=True) # shape should be [64, 1, 1, 1]
 
     # Perturb the data using the gradient
     # HINT: Before normalizing the gradient by its L2 norm, use
     # torch.clamp(l2_of_grad, min=1e-12) to prevent division by 0
-
+    x_adv = x_nat + eps * (grad_wrt_data / torch.clamp(grad_norm, min=1e-12))
     # Add perturbation the data
 
     # Clip the perturbed datapoints to ensure we are in bounds [0,1]
-
+    x_adv = torch.clamp(x_adv, min=0, max=1)
     # Return the perturbed samples
-    return 0
+    return x_adv, lbl
