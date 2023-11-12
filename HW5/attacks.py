@@ -75,10 +75,7 @@ def rFGSM_attack(model, device, dat, lbl, eps):
     # TODO: Implement the FGSM attack
     # - Dat and lbl are tensors
     # - eps is a float
-    iters = 1
-    alpha = eps
-    eps = alpha * iters / 1.85
-    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=eps, alpha=alpha, iters=iters, rand_start=True)
+    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=eps, alpha=eps, iters=1, rand_start=True)
     # HINT: rFGSM is a special case of PGD
     return x_adv, lbl
 
