@@ -8,7 +8,7 @@ def random_noise_attack(model, device, dat, eps):
     # Clip the perturbed datapoints to ensure we are in bounds [0,1]
     x_adv = torch.clamp(x_adv.clone().detach(), 0., 1.)
     # Return perturbed samples
-    return x_adv
+    return x_adv, None
 
 # Compute the gradient of the loss w.r.t. the input data
 def gradient_wrt_data(model,device,data,lbl):
@@ -50,11 +50,15 @@ def PGD_attack(model, device, dat, lbl, eps, alpha, iters, rand_start):
         # Perturb the image using the gradient
         x_nat_perturbed += torch.sign(grad_wrt_data) * alpha
         # Clip the perturbed datapoints to ensure we still satisfy L_infinity constraint
-        x_nat_perturbed = torch.clamp(x_nat_perturbed, min=x_nat_perturbed-eps, max=x_nat_perturbed+eps)
+        x_nat_perturbed = torch.clamp(x_nat_perturbed, min=x_nat-eps, max=x_nat+eps)
         # Clip the perturbed datapoints to ensure we are in bounds [0,1]
         x_nat_perturbed = torch.clamp(x_nat_perturbed, min=0, max=1)
 
     # Return the final perturbed samples
+    assert(torch.max(torch.abs(x_nat_perturbed-x_nat)) <= (eps + 1e-7)), \
+        "torch.max(torch.abs(x_nat_perturbed-x_nat))=%.10f,eps=%.10f" % (torch.max(torch.abs(x_nat_perturbed-x_nat)), eps)
+    assert(x_nat_perturbed.max() == 1.), "x_nat_perturbed.max()=%.10f,eps=%.10f" % (x_nat_perturbed.max(), eps)
+    assert(x_nat_perturbed.min() == 0.), "x_nat_perturbed.min()=%.10f,eps=%.10f" % (x_nat_perturbed.min(), eps)
     return x_nat_perturbed, lbl
 
 
@@ -62,7 +66,7 @@ def FGSM_attack(model, device, dat, lbl, eps):
     # TODO: Implement the FGSM attack
     # - Dat and lbl are tensors
     # - eps is a float
-    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=0, alpha=eps, iters=1, rand_start=False)
+    x_adv, lbl = PGD_attack(model=model, device=device, dat=dat, lbl=lbl, eps=eps, alpha=eps, iters=1, rand_start=False)
     # HINT: FGSM is a special case of PGD
     return x_adv, lbl
 
