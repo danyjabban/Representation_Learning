@@ -91,13 +91,15 @@ def FGM_L2_attack(model, device, dat, lbl, eps):
 
     # Compute sample-wise L2 norm of gradient (L2 norm for each batch element)
     # HINT: Flatten gradient tensor first, then compute L2 norm
-    # grad_norm = torch.norm(grad_wrt_data, p=2, dim=(2, 3), keepdim=True) # shape should be [64, 1, 1, 1]
-    grad_norm = torch.flatten(grad_wrt_data, 2, 3).norm(p=2, dim=2)
+    grad_norm_old = torch.norm(grad_wrt_data, p=2, dim=(2, 3), keepdim=True) # shape should be [64, 1, 1, 1]
+    # grad_norm_new = torch.flatten(grad_wrt_data, 2, 3).norm(p=2, dim=2)
 
     # Perturb the data using the gradient
     # HINT: Before normalizing the gradient by its L2 norm, use
     # torch.clamp(l2_of_grad, min=1e-12) to prevent division by 0
-    x_adv = x_nat + eps * (grad_wrt_data / torch.clamp(grad_norm, min=1e-12))
+    x_adv = x_nat + eps * (grad_wrt_data / torch.clamp(grad_norm_old, min=1e-12))
+    # x_adv_new = x_nat + eps * (grad_wrt_data / torch.clamp(grad_norm_new[:, :, None, None], min=1e-12))
+    
     # Add perturbation the data
 
     # Clip the perturbed datapoints to ensure we are in bounds [0,1]
