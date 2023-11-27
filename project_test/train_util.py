@@ -1,15 +1,37 @@
 import time
+import os
 
 import torch
 import torchvision.transforms as transforms
 import torchvision
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.checkpoint import checkpoint
+
+import torch.multiprocessing as mp
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, destroy_process_group
+
 from lars.lars import LARS
 
 from FP_layers import *
 
+from resnet import ResNetCIFAR
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+def ddp_setup(rank: int, world_size: int):
+    """
+    Args:
+        rank: Unique identifier of each process
+        world_size: Total number of processes
+    """
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+    init_process_group(backend="nccl", rank=rank, world_size=world_size)
+    torch.cuda.set_device(rank)
+    return
 
 
 def nt_xent_loss(x, temperature=0.1):
@@ -42,13 +64,16 @@ def augment_data(batch):
     return new_batch
 
 
-def train(net, epochs, batch_size, lr, reg, log_every_n=50):
+def train(rank, world_size, epochs, batch_size, lr, reg, head, log_every_n=50):
     """
     Training a network
     :param net: Network for training
     :param epochs: Number of epochs in total.
     :param batch_size: Batch size for training.
     """
+    ddp_setup(rank, world_size)
+    net = DDP(ResNetCIFAR(head_g=head), device_ids=[rank])
+    net = net.to(device)
     print('device', device)
     print('==> Preparing data..')
     transform_train = transforms.Compose([
@@ -65,18 +90,22 @@ def train(net, epochs, batch_size, lr, reg, log_every_n=50):
     best_loss = 1000000  # best test accuracy
     start_epoch = 0  # start from epoch 0 or last checkpoint epoch
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_train)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, 
+                                              shuffle=False,
+                                              sampler=DistributedSampler(trainset),
+                                              num_workers=16)
+    # trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=16)
+
     orig_batch_size = batch_size
     every_nth_minibatch = int(1)
     
-    if orig_batch_size > 2048:  # batch size too large, 
-        # see this link https://discuss.pytorch.org/t/how-can-you-train-your-model-on-large-batches-when-your-gpu-can-t-hold-more-than-a-few-samples/80581/4
-        batch_size = 2048  # this is max "batch_size" that's actually allowed. orig_batch_size > 2048 is 
-        # simulated using 1x update for the optimiser per multiple batches (of size 2048). 
-        # every_nth_minibatch = 2048: this is to enable training using large batch size without out-of-memory
-        every_nth_minibatch = int(orig_batch_size / batch_size)
+    # if orig_batch_size > 2048:  # batch size too large, 
+    #     # see this link https://discuss.pytorch.org/t/how-can-you-train-your-model-on-large-batches-when-your-gpu-can-t-hold-more-than-a-few-samples/80581/4
+    #     batch_size = 2048  # this is max "batch_size" that's actually allowed. orig_batch_size > 2048 is 
+    #     # simulated using 1x update for the optimiser per multiple batches (of size 2048). 
+    #     # every_nth_minibatch = 2048: this is to enable training using large batch size without out-of-memory
+    #     every_nth_minibatch = int(orig_batch_size / batch_size)
     assert orig_batch_size % batch_size == 0
-
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=16)
 
     testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform_test)
     testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=2)
@@ -99,6 +128,7 @@ def train(net, epochs, batch_size, lr, reg, log_every_n=50):
             scheduler = scheduler_after
         else:
             scheduler = scheduler_warmup
+        train_data.sampler.set_epoch(epoch)
         """
         Start the training code.
         """
@@ -112,17 +142,20 @@ def train(net, epochs, batch_size, lr, reg, log_every_n=50):
             augment_inputs, targets = augment_inputs.to(device), targets.to(device)
             optimizer.zero_grad()
             outputs = net(augment_inputs)
+            # outputs = checkpoint(net, augment_inputs)
+            del augment_inputs
             # loss = criterion(outputs, targets)
             loss = criterion(outputs)
             loss.backward()
-            if batch_size < orig_batch_size:  # if batch size is very very large, 
-                # update every batch size.
-                if batch_idx % every_nth_minibatch == 0:
-                    optimizer.step()
-            else:
-                optimizer.step()
+            optimizer.step()
+            # if batch_size < orig_batch_size:  # if batch size is very very large, 
+            #     # update every batch size.
+            #     if batch_idx % every_nth_minibatch == 0:
+            #         optimizer.step()
+            # else:
+            #     optimizer.step()
             train_loss += loss.item()
-            _, predicted = outputs.max(1)
+            # _, predicted = outputs.max(1)
             total += targets.size(0)
             # correct += predicted.eq(targets).sum().item()
             global_steps += 1
@@ -165,8 +198,10 @@ def train(net, epochs, batch_size, lr, reg, log_every_n=50):
 
         if val_loss < best_loss:
             best_loss = val_loss
-            print("Saving...")
-            torch.save(net.state_dict(), "test_model.pt")
+            if rank == 0:
+                print("Saving...")
+                torch.save(net.state_dict(), "test_model.pt")
+    destroy_process_group()
     return
 
 
