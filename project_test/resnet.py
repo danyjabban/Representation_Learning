@@ -80,12 +80,13 @@ class ResNetCIFAR(nn.Module):
         out = self.body_op(out)
         self.features = self.avg_pool(out)
         self.feat_1d = self.features.mean(3).mean(2)  # this is h=f(*)
-        if self.head_g is not None:  # for finetuning only, where head isn't separate
-            self.head_g = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
-            return self.head_g  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
+        if self.head_g is not None:  # for finetuning and training, 
+        # where head isn't separate from the rest of the ResNet. See algorithm 1 in SimCLR paper. 
+            self.g_out = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
+            return self.g_out  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
         else:  # this is for linear evaluation only, where the head is separate
-            self.head_g = self.feat_1d
-            return self.head_g
+            self.g_out = self.feat_1d
+            return self.g_out
 
 
 class LinearEvaluation(nn.Module):
@@ -118,3 +119,23 @@ class LinearEvaluation(nn.Module):
         else:  # identity mapping
             self.logits = self.to_logits(embedding)
         return self.logits  # note: use cross entropy loss to do logistic regression
+
+
+class ConstantWithWarmup(torch.optim.lr_scheduler._LRScheduler):
+    def __init__(
+        self,
+        optimizer,
+        num_warmup_steps: int,
+    ):
+        self.num_warmup_steps = num_warmup_steps
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        if self._step_count <= self.num_warmup_steps:
+            # warmup
+            scale = 1.0 - (self.num_warmup_steps - self._step_count) / self.num_warmup_steps
+            lr = [base_lr * scale for base_lr in self.base_lrs]
+            self.last_lr = lr
+        else:
+            lr = self.base_lrs
+        return lr
