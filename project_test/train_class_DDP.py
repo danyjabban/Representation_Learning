@@ -57,9 +57,6 @@ class TrainerDDP():
         return
 
     def _run_epoch(self, epoch):
-        self.trainloader.sampler.set_epoch(epoch)
-        # T_0 = epochs -> no restart? Paper uses lin warmup (first 10 epochs) then cosine decay schedule w/o restarts
-
         global_steps = 0
 
         if epoch >= self.warmup_iters:
@@ -129,7 +126,6 @@ class TrainerDDP():
         return
 
     def train(self, max_epochs: int, save_base_path: str):
-        self.model.train()
         for epoch in range(max_epochs):
             # https://pytorch.org/docs/stable/data.html#torch.utils.data.distributed.DistributedSampler
             self.sampler_train.set_epoch(epoch)
@@ -178,8 +174,10 @@ def run_main(rank, world_size, total_epochs, batch_size, lr, reg, head, save_bas
     ddp_setup(rank, world_size)
     model = ResNetCIFAR(head_g=head)
     trainer = TrainerDDP(rank, model, batch_size, lr, reg, log_every_n=log_every_n)
+    # note: gpu_id == rank
     trainer.train(total_epochs, save_base_path)
     destroy_process_group()
+
 
 if __name__ == "__main__":
     # from lars.lars import LARS
@@ -188,6 +186,6 @@ if __name__ == "__main__":
     os.makedirs(save_base_path, exist_ok=True)
     # model = nn.parallel.DistributedDataParallel(ResNetCIFAR(head_g=head))
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
-    batch_size = int(1024)
+    batch_size = int(1856)
     world_size = torch.cuda.device_count()
     mp.spawn(run_main, args=(world_size, 1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, 50,), nprocs=world_size)
