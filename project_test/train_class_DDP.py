@@ -41,7 +41,7 @@ class TrainerDDP():
 
         # self.model = DDP(ResNetCIFAR(head_g=head, num_layers=50), device_ids=[rank])
         self.rank = rank
-        self.model = DDP(torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).cuda(), device_ids=[self.rank], output_device=self.rank)
+        self.model = DDP(torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).to(self.rank), device_ids=[self.rank], gradient_as_bucket_view=True)
         self.batch_size = batch_size
         self.lr = lr
         self.reg = reg
@@ -56,10 +56,11 @@ class TrainerDDP():
         self.trainloader, self.testloader, self.sampler_train = TrainerDDP.cifar_dataloader_ddp(self.batch_size)
 
         self.scaler = torch.cuda.amp.GradScaler()
+        self.global_steps = 0
         return
 
     def _run_epoch(self, epoch):
-        global_steps = 0
+        self.global_steps = 0
 
         if epoch >= self.warmup_iters:
             scheduler = self.scheduler_after
@@ -95,12 +96,12 @@ class TrainerDDP():
             self.scaler.update()
             train_loss += loss.item()
             total += targets.size(0)
-            global_steps += 1
+            self.global_steps += 1
 
-            if global_steps % self.log_every_n == 0:
+            if self.global_steps % self.log_every_n == 0:
                 if self.rank == 0:
                     print("[Step=%d]\tLoss=%.4f" 
-                            % (global_steps, train_loss / (batch_idx + 1)))
+                            % (self.global_steps, train_loss / (batch_idx + 1)))
 
             scheduler.step()
 
@@ -192,6 +193,6 @@ if __name__ == "__main__":
     os.makedirs(save_base_path, exist_ok=True)
     # model = nn.parallel.DistributedDataParallel(ResNetCIFAR(head_g=head))
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
-    batch_size = int(1856)
+    batch_size = int(2048)
     world_size = torch.cuda.device_count()
     mp.spawn(run_main, args=(world_size, 1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, 50,), nprocs=world_size)
