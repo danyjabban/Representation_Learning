@@ -30,30 +30,32 @@ def ddp_setup(rank: int, world_size: int):
 
 class TrainerDDP():
     def __init__(
-        self, gpu_id, model,
+        self, rank, model,
         batch_size, lr, reg, log_every_n=50
     ) -> None:
-        # super().__init__(gpu_id, model, trainloader, testloader)
+        # super().__init__(rank, model, trainloader, testloader)
         super().__init__()
         # https://discuss.pytorch.org/t/extra-10gb-memory-on-gpu-0-in-ddp-tutorial/118113
-        torch.cuda.set_device(gpu_id)  # master gpu takes up extra memory
+        torch.cuda.set_device(rank)  # master gpu takes up extra memory
         torch.cuda.empty_cache()
 
-        # self.model = DDP(ResNetCIFAR(head_g=head, num_layers=50), device_ids=[gpu_id])
-        self.gpu_id = gpu_id
-        self.model = DDP(torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).cuda(), device_ids=[self.gpu_id], output_device=self.gpu_id)
+        # self.model = DDP(ResNetCIFAR(head_g=head, num_layers=50), device_ids=[rank])
+        self.rank = rank
+        self.model = DDP(torch.nn.SyncBatchNorm.convert_sync_batchnorm(model).cuda(), device_ids=[self.rank], output_device=self.rank)
         self.batch_size = batch_size
         self.lr = lr
-        self.l2_reg = reg
+        self.reg = reg
         self.log_every_n = log_every_n
 
         self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
-        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.l2_reg, nesterov=False)
+        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=False)
         self.warmup_iters = 10
         self.scheduler_warmup = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, 
                                                             total_iters=self.warmup_iters, verbose=False)
         self.scheduler_after  = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=1000, verbose=False)
         self.trainloader, self.testloader, self.sampler_train = TrainerDDP.cifar_dataloader_ddp(self.batch_size)
+
+        self.scaler = torch.cuda.amp.GradScaler()
         return
 
     def _run_epoch(self, epoch):
@@ -66,33 +68,37 @@ class TrainerDDP():
         """
         Start the training code.
         """
-        if self.gpu_id == 0:
+        if self.rank == 0:
             print('\nEpoch: %d' % epoch)
         self.model.train()
         train_loss = 0
         total = 0
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
-            augment_inputs1 = TrainerDDP.aug_dat(inputs).to(self.gpu_id)
-            augment_inputs2 = TrainerDDP.aug_dat(inputs).to(self.gpu_id)
+            augment_inputs1 = TrainerDDP.aug_dat(inputs).to(self.rank)
+            augment_inputs2 = TrainerDDP.aug_dat(inputs).to(self.rank)
             del inputs
             self.optimizer.zero_grad()
-            outputs1 = self.model(augment_inputs1)
-            outputs2 = self.model(augment_inputs2)
-            del augment_inputs1
-            del augment_inputs2
-
+            with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
+                outputs1 = self.model(augment_inputs1)
+                outputs2 = self.model(augment_inputs2)
+                del augment_inputs1
+                del augment_inputs2
+                loss = self.criterion(outputs1, outputs2)
+            # loss.backward()
             isnan = sum(torch.isnan(torch.tensor(torch.cat((outputs1.clone().detach(), outputs2.clone().detach())).clone().detach())).to('cpu').numpy().astype(int).flatten())
+            del outputs1, outputs2
+            self.scaler.scale(loss).backward()
             if isnan != 0: 
                 print(isnan)
-            loss = self.criterion(outputs1, outputs2)
-            loss.backward()
-            self.optimizer.step()
+            # self.optimizer.step()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             train_loss += loss.item()
             total += targets.size(0)
             global_steps += 1
 
             if global_steps % self.log_every_n == 0:
-                if self.gpu_id == 0:
+                if self.rank == 0:
                     print("[Step=%d]\tLoss=%.4f" 
                             % (global_steps, train_loss / (batch_idx + 1)))
 
@@ -107,7 +113,7 @@ class TrainerDDP():
         total = 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(self.testloader):
-                augment_inputs1, augment_inputs2 = TrainerDDP.aug_dat(inputs).to(self.gpu_id), TrainerDDP.aug_dat(inputs).to(self.gpu_id)
+                augment_inputs1, augment_inputs2 = TrainerDDP.aug_dat(inputs).to(self.rank), TrainerDDP.aug_dat(inputs).to(self.rank)
                 outputs1, outputs2 = self.model(augment_inputs1), self.model(augment_inputs2)
                 loss = self.criterion(outputs1, outputs2)
 
@@ -115,14 +121,14 @@ class TrainerDDP():
                 total += targets.size(0)
         num_val_steps = len(self.testloader)
         val_loss = test_loss / num_val_steps
-        if self.gpu_id == 0:
+        if self.rank == 0:
             print("Test Loss=%.4f" % val_loss)
         return
 
     def _save_checkpoint(self, epoch: int, save_base_path: str):
         print("Saving...")
         torch.save(self.model.state_dict(), "%s/epoch_%d_bs_%d_lr_%g_reg_%g.pt" 
-                                        % (save_base_path, int(epoch), int(self.batch_size), self.lr, self.l2_reg))
+                                        % (save_base_path, int(epoch), int(self.batch_size), self.lr, self.reg))
         return
 
     def train(self, max_epochs: int, save_base_path: str):
@@ -131,7 +137,7 @@ class TrainerDDP():
             self.sampler_train.set_epoch(epoch)
             self._run_epoch(epoch)
             # only save once on master gpu
-            if self.gpu_id == 0 and ((epoch+1) % 100 == 0 or epoch == 0):
+            if self.rank == 0 and ((epoch+1) % 100 == 0 or epoch == 0):
                 self._save_checkpoint(epoch, save_base_path)
         # save last epoch
         self._save_checkpoint(max_epochs - 1, save_base_path)
@@ -174,7 +180,7 @@ def run_main(rank, world_size, total_epochs, batch_size, lr, reg, head, save_bas
     ddp_setup(rank, world_size)
     model = ResNetCIFAR(head_g=head)
     trainer = TrainerDDP(rank, model, batch_size, lr, reg, log_every_n=log_every_n)
-    # note: gpu_id == rank
+    # note: rank == rank
     trainer.train(total_epochs, save_base_path)
     destroy_process_group()
 
