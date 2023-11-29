@@ -25,7 +25,15 @@ class Trainer_wo_DDP():
         super().__init__()
         # https://discuss.pytorch.org/t/extra-10gb-memory-on-gpu-0-in-ddp-tutorial/118113
         self.model = model
-        self.batch_size = batch_size
+        
+        self.acc_steps = max(1, int(batch_size / 1024))
+        if self.acc_steps != 1:  # accumulate gradient 
+        # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
+        # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
+            self.batch_size = int(batch_size / self.acc_steps)
+        else:
+            self.batch_size = int(batch_size)
+        assert self.batch_size == np.round(batch_size / self.acc_steps)
         self.lr = lr
         self.reg = reg
         self.log_every_n = log_every_n
@@ -39,10 +47,10 @@ class Trainer_wo_DDP():
         self.trainloader, self.testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(self.batch_size)
         self.global_steps = 0
 
-        self.scaler = torch.cuda.amp.GradScaler()
+        # self.scaler = torch.cuda.amp.GradScaler()
         return
 
-    def _run_epoch(self, epoch):
+    def _run_epoch(self, epoch, optim_update: bool):
 
         if epoch >= self.warmup_iters:
             scheduler = self.scheduler_after
@@ -59,22 +67,26 @@ class Trainer_wo_DDP():
             augment_inputs1 = Trainer_wo_DDP.aug_dat(inputs).to(device)
             augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(device)
             del inputs
-            self.optimizer.zero_grad()
-            with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
-                outputs1 = self.model(augment_inputs1)
-                outputs2 = self.model(augment_inputs2)
-                del augment_inputs1
-                del augment_inputs2
-                loss = self.criterion(outputs1, outputs2)
-            # loss.backward()
+            
+            # with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
+            outputs1 = self.model(augment_inputs1)
+            outputs2 = self.model(augment_inputs2)
+            del augment_inputs1
+            del augment_inputs2
+            loss = self.criterion(outputs1, outputs2) / self.acc_steps
+            loss.backward(retain_graph=True)
             isnan = sum(torch.isnan(torch.tensor(torch.cat((outputs1.clone().detach(), outputs2.clone().detach())).clone().detach())).to('cpu').numpy().astype(int).flatten())
             del outputs1, outputs2
-            self.scaler.scale(loss).backward()
+            # self.scaler.scale(loss).backward()
             if isnan != 0: 
                 print(isnan)
             # self.optimizer.step()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
+            if optim_update:
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                scheduler.step()
+                # self.scaler.step(self.optimizer)
+            # self.scaler.update()
 
             train_loss += loss.item()
             total += targets.size(0)
@@ -84,7 +96,6 @@ class Trainer_wo_DDP():
                 print("[Step=%d]\tLoss=%.4f" 
                         % (self.global_steps, train_loss / (batch_idx + 1)))
 
-            scheduler.step()
 
         """
         Start the testing code.
@@ -113,8 +124,13 @@ class Trainer_wo_DDP():
         return
 
     def train(self, max_epochs: int, save_base_path: str):
+        self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
+        # in _run_epoch
         for epoch in range(max_epochs):
-            self._run_epoch(epoch)
+            if (epoch+1) % self.acc_steps == 0 or (epoch+1 == len(self.trainloader)):
+                self._run_epoch(epoch, True)  # do optimizer step
+            else:
+                self._run_epoch(epoch, False) # do gradient accumulation (don't do optimizer step)
             # only save once on master gpu
             if (epoch+1) % 100 == 0 or epoch == 0:
                 self._save_checkpoint(epoch, save_base_path)
@@ -166,6 +182,6 @@ if __name__ == "__main__":
     os.makedirs(save_base_path, exist_ok=True)
     # model = nn.parallel.DistributedDataParallel(ResNetCIFAR(head_g=head))
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
-    batch_size = int(1024)
+    batch_size = int(4096)
     world_size = torch.cuda.device_count()
-    run_main(1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, 50)
+    run_main(1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, int(batch_size/256 * 50))
