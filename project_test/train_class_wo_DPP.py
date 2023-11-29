@@ -50,7 +50,7 @@ class Trainer_wo_DDP():
         # self.scaler = torch.cuda.amp.GradScaler()
         return
 
-    def _run_epoch(self, epoch, optim_update: bool):
+    def _run_epoch(self, epoch):
 
         if epoch >= self.warmup_iters:
             scheduler = self.scheduler_after
@@ -73,7 +73,7 @@ class Trainer_wo_DDP():
             outputs2 = self.model(augment_inputs2)
             del augment_inputs1
             del augment_inputs2
-            loss = self.criterion(outputs1, outputs2) / self.acc_steps
+            loss = self.criterion(outputs1, outputs2)
             loss.backward(retain_graph=True)
             isnan = sum(torch.isnan(torch.tensor(torch.cat((outputs1.clone().detach(), outputs2.clone().detach())).clone().detach())).to('cpu').numpy().astype(int).flatten())
             del outputs1, outputs2
@@ -81,7 +81,7 @@ class Trainer_wo_DDP():
             if isnan != 0: 
                 print(isnan)
             # self.optimizer.step()
-            if optim_update:
+            if (batch_idx+1) % self.acc_steps == 0 or (batch_idx+1 == len(self.trainloader)):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 scheduler.step()
@@ -92,10 +92,10 @@ class Trainer_wo_DDP():
             total += targets.size(0)
             self.global_steps += 1
 
-            if self.global_steps % self.log_every_n == 0:
+            if self.global_steps % (self.log_every_n * self.acc_steps) == 0:
                 print("[Step=%d]\tLoss=%.4f" 
                         % (self.global_steps, train_loss / (batch_idx + 1)))
-
+        # end training for this epoch
 
         """
         Start the testing code.
@@ -120,17 +120,15 @@ class Trainer_wo_DDP():
     def _save_checkpoint(self, epoch: int, save_base_path: str):
         print("Saving...")
         torch.save(self.model.state_dict(), "%s/epoch_%d_bs_%d_lr_%g_reg_%g.pt" 
-                                        % (save_base_path, int(epoch), int(self.batch_size), self.lr, self.reg))
+                                        % (save_base_path, int(epoch), int(self.batch_size * self.acc_steps),
+                                           self.lr, self.reg))
         return
 
     def train(self, max_epochs: int, save_base_path: str):
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
         for epoch in range(max_epochs):
-            if (epoch+1) % self.acc_steps == 0 or (epoch+1 == len(self.trainloader)):
-                self._run_epoch(epoch, True)  # do optimizer step
-            else:
-                self._run_epoch(epoch, False) # do gradient accumulation (don't do optimizer step)
+            self._run_epoch(epoch)  # whether optimizer step happens is determined by batch_idx, not epoch
             # only save once on master gpu
             if (epoch+1) % 100 == 0 or epoch == 0:
                 self._save_checkpoint(epoch, save_base_path)
@@ -184,4 +182,4 @@ if __name__ == "__main__":
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
     batch_size = int(4096)
     world_size = torch.cuda.device_count()
-    run_main(1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, int(batch_size/256 * 50))
+    run_main(1000, batch_size, 0.3*batch_size/256, 1e-6, head, save_base_path, int(256/batch_size * 50))
