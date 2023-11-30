@@ -94,20 +94,21 @@ class ResNetCIFAR(nn.Module):
 
 class LinearEvaluation(nn.Module):
     def __init__(self, method, resnet_model_pth, Nbits=None, symmetric=False):
+        super(LinearEvaluation, self).__init__()
         # three heads: identity mapping; (2) linear projection; and (3) nonlinear projection
         # nonlinear: W2 * ReLu(W1 * h), where h=ResNet(*)=f(*)
-        assert 0 == 1, "don't use this module yet"
+        # assert 0 == 1, "don't use this module yet"
         self.method = method
-        self.valid_method = {'identity': None, 
-                            'lin': FP_Linear(64, 64, Nbits=None), 
+        self.valid_methods = {'identity': None, 
+                            'lin': nn.Sequential(FP_Linear(64, 64, Nbits=None)), 
                             'nonlin': nn.Sequential(FP_Linear(64, 64, Nbits=None), 
                                                     nn.ReLU(True),  # in-place ReLU
                                                     FP_Linear(64, 64, Nbits=None))
                             }
-        self.to_logits = FP_Linear(64, 10, Nbits=None)  # linear eval needs logistic regression
+        self.to_logits = nn.Sequential(FP_Linear(64, 10, Nbits=None))  # linear eval needs logistic regression
         # output of self.head_g will always be 
 
-        self.head_g = self.valid_method[self.method]
+        self.head_g = self.valid_methods[self.method]
         assert self.method in self.valid_methods.keys()
         self.model = ResNetCIFAR(head_g=None, Nbits=Nbits, symmetric=symmetric)
         # head_g = None -> model should return embeddings h=f(*) right after avg pool
