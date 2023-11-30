@@ -128,10 +128,9 @@ class Trainer_wo_DDP():
         return
 
     def train(self, max_epochs: int, save_base_path: str):
-        file_name = "%s/epoch_%d_bs_%d_lr_%g_reg_%g.txt" % (save_base_path, int(max_epochs), int(self.batch_size * self.acc_steps), self.lr, self.reg)
+        file_name = "%s/max_epoch_%d_bs_%d_lr_%g_reg_%g.txt" % (save_base_path, int(max_epochs), int(self.batch_size * self.acc_steps), self.lr, self.reg)
         if file_name not in os.listdir(save_base_path):
-            f_ptr = open(
-                "%s/epoch_%d_bs_%d_lr_%g_reg_%g.txt" % (save_base_path, int(max_epochs), int(self.batch_size * self.acc_steps), self.lr, self.reg), 'w')
+            f_ptr = open(file_name, 'w')
             f_ptr.close()
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
@@ -141,10 +140,10 @@ class Trainer_wo_DDP():
             f_ptr.write("%d,%.6f\n" % (epoch, val_loss))
             f_ptr.close()
             # only save once on master gpu
-            if (epoch+1) % 100 == 0 or epoch == 0:
-                self._save_checkpoint(epoch, save_base_path)
-        # save last epoch
-        self._save_checkpoint(max_epochs - 1, save_base_path)
+            if (epoch+1) % 100 == 0:
+                self._save_checkpoint(epoch+1, save_base_path)
+        # # save last epoch
+        # self._save_checkpoint(max_epochs - 1, save_base_path)
 
     @staticmethod
     def aug_dat(batch):
@@ -183,8 +182,7 @@ def run_main(total_epochs: int, batch_size: int, lr: float, reg: float, head, sa
     model = ResNetCIFAR(head_g=head).to(device)
     trainer = Trainer_wo_DDP(model, batch_size, lr, reg, train_for_finetune, log_every_n=log_every_n)
     trainer.train(total_epochs, save_base_path)
-    destroy_process_group()
-
+    return
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
