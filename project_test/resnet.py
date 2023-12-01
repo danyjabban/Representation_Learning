@@ -38,7 +38,10 @@ class ResNet_Block(nn.Module):
 
 
 class ResNetCIFAR(nn.Module):
-    def __init__(self, head_g, num_layers=50, Nbits=None, symmetric=False):
+    def __init__(self, num_layers=50, Nbits=None, symmetric=False, lin_eval_key=0):
+        lin_eval_key_dict = {0: 'output is returned after passing through self.head_g (e.g., training/fine-tuning)', 
+                             1: 'nonlinear head for linear evaluation -> use same head as for training', 
+                             2: "don't use default head (linear evaluation with identity or linear mapping)"}
         # assert 0 == 1, "don't use this yet"
         super(ResNetCIFAR, self).__init__()
         self.num_layers = num_layers
@@ -76,53 +79,62 @@ class ResNetCIFAR(nn.Module):
         self.body_op = nn.Sequential(*self.body_op)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # self.head_g = FP_Linear(64, 10, Nbits=None)
-        self.head_g = head_g
+        self.head_g = nn.Sequential(FP_Linear(64, 64, Nbits=None), 
+                                    nn.ReLU(True), 
+                                    FP_Linear(64, 64, Nbits=None))
+        self.lin_eval_key = lin_eval_key
 
     def forward(self, x):
         out = self.head_conv(x)
         out = self.body_op(out)
         self.features = self.avg_pool(out)
         self.feat_1d = self.features.mean(3).mean(2)  # this is h=f(*)
-        if self.head_g is not None:  # for finetuning and training, 
-        # where head isn't separate from the rest of the ResNet. See algorithm 1 in SimCLR paper. 
+
+        # self.head_g will always be the same nonlinear stuff. 
+        # For finetuning and training, use different members
+        # instead of changing what the members are.
+        if self.lin_eval_key == 0 or self.lin_eval_key == 1:  # lin_eval_key 0 -> not doing lin_eval_key
+            # for finetuning and training and linear evaluation with nonlinear head
+            # See algorithm 1 in SimCLR paper. 
             self.g_out = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
             return self.g_out  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
-        else:  # this is for linear evaluation only, where the head is separate
+        if self.lin_eval_key == 2:  # this is for linear evaluation with linear/identity head
             self.g_out = self.feat_1d
             return self.g_out
 
 
 class LinearEvaluation(nn.Module):
-    def __init__(self, method, resnet_model_pth, Nbits=None, symmetric=False):
+    def __init__(self, method, resnet_model_pth, which_device, Nbits=None, symmetric=False):
         super(LinearEvaluation, self).__init__()
-        # three heads: identity mapping; (2) linear projection; and (3) nonlinear projection
+        # three heads: identity mapping; linear projection; and nonlinear projection
         # nonlinear: W2 * ReLu(W1 * h), where h=ResNet(*)=f(*)
         # assert 0 == 1, "don't use this module yet"
         self.method = method
-        self.valid_methods = {'identity': None, 
-                            'lin': nn.Sequential(FP_Linear(64, 64, Nbits=None)), 
-                            'nonlin': nn.Sequential(FP_Linear(64, 64, Nbits=None), 
-                                                    nn.ReLU(True),  # in-place ReLU
-                                                    FP_Linear(64, 64, Nbits=None))
-                            }
+        self.valid_methods = {'identity': 2, # does not pass through head in ResNetCIFAR
+                              'lin': 2,  # does not pass through head in ResNetCIFAR
+                              'nonlin': 1}  # does pass through head in ResNetCIFAR
         self.to_logits = nn.Sequential(FP_Linear(64, 10, Nbits=None))  # linear eval needs logistic regression
-        # output of self.head_g will always be 
 
-        self.head_g = self.valid_methods[self.method]
+        self.head_g = nn.Sequential(FP_Linear(64, 64, Nbits=None))
         assert self.method in self.valid_methods.keys()
-        self.model = ResNetCIFAR(head_g=None, Nbits=Nbits, symmetric=symmetric)
+
+        self.resnet = ResNetCIFAR(Nbits=Nbits, symmetric=symmetric, lin_eval_key=self.valid_methods[self.method]).to(which_device)
         # head_g = None -> model should return embeddings h=f(*) right after avg pool
-        self.model.load_state_dict(torch.load(resnet_model_pth))
+        self.resnet.load_state_dict(torch.load(resnet_model_pth))
         self.embedding = None
         self.logits = None
     
     def forward(self, x):
         with torch.no_grad():
-            self.embedding = self.model(x).clone().detatch().requires_grad_(True)
-        if self.head_g is not None: # linear or nonlinear projections
-            self.logits = self.to_logits(self.head_g(embedding))
-        else:  # identity mapping
-            self.logits = self.to_logits(embedding)
+            # _ = self.resnet(x).clone().detach().requires_grad_(True)
+            # self.embedding = self.resnet.feat_1d.clone().detach()
+
+            self.embedding = self.resnet(x).clone().detach()
+            # print(self.embedding.shape)
+        if self.method == 'linear': # linear projections
+            self.logits = self.to_logits(self.head_g(self.embedding))
+        else:  # identity mapping or nonlinear projection. This should've already been specified in ResNetCIFAR
+            self.logits = self.to_logits(self.embedding)
         return self.logits  # note: use cross entropy loss to do logistic regression
 
 
