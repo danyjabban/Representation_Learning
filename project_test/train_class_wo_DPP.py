@@ -35,6 +35,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     valid_bs = {256, 512, 1024, 2048, 4096}
+    valid_embed_dim = {64, 48, 32, 24, 12}
     assert args.batchsize in valid_bs
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
