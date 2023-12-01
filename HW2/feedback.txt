@@ -1,5 +1,0 @@
-1.1 wrong answer. Note that the learnable scaling and shifting weights are also part of BN. Specifically, y = γxˆ+β, where y is the output of BN. While xˆ has zero mean, y has the mean of β which is learned by the model itself.; -3pts
-
-lab 1 (h) full bonus credits issued; +4pts
-
-lab 2 (c) (iii) We would expect you to document/illustrate in texts how you implemented L1-norm briefly, and which layers did you use to generate the histograms — these are part of the important information that makes your answer self-contained. Partial bonus credits given; +3pts
