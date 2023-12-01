@@ -9,14 +9,30 @@ import torchvision
 import torch.nn as nn
 import torch.optim as optim
 
+from sklearn.linear_model import LogisticRegression
+
 from FP_layers import *
 
-from resnet import LinearEvaluation
-from train_classes import Trainer_LinEval
+from resnet import *
+from train_classes import *
 
 torch.manual_seed(0)  # for reproducibility
 random.seed(0)  # just in case
 np.random.seed(0)  # just in case
+
+
+def collate_data(model):
+    trainloader, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0)
+    
+    traindata_lst, trainlbl_lst = [], []
+    for _, (batch, labels) in enumerate(trainloader):
+        traindata_lst.extend(model(batch.to(device)).clone().detach().cpu().numpy())
+        trainlbl_lst.extend(labels.cpu().numpy())
+    testdata_lst, testlbl_lst = [], []
+    for _, (batch, labels) in enumerate(testloader):
+        testdata_lst.extend(model(batch.to(device)).clone().detach().cpu().numpy())
+        testlbl_lst.extend(labels.cpu().numpy())
+    return np.array(traindata_lst), np.array(trainlbl_lst), np.array(testdata_lst), np.array(testlbl_lst)
 
 
 if __name__ == "__main__":
@@ -25,20 +41,27 @@ if __name__ == "__main__":
                         help='which cuda device. On Lab server (tingjun chen), should be in [0,1]')
     parser.add_argument('-e', '--epoch_resnet', type=int, required=True)
     parser.add_argument('-b', '--batch_size_resnet', type=int, required=True)
+    parser.add_argument('-l', '--lr_resnet', type=float, required=True)
     # parser.add_argument('-b', '--batchsize', type=int, required=True)
     args = parser.parse_args()
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
 
     resnet_model_pth = "./saved_models/epoch_%d_bs_%d_lr_%g_reg_1e-06.pt" % \
-                (args.epoch_resnet, args.batch_size_resnet, 0.3*args.batch_size_resnet/256)
-
-    lin_eval_net = LinearEvaluation(method='lin', which_device=device, resnet_model_pth=resnet_model_pth, Nbits=None, symmetric=False).to(device)
-    save_base_path = 'saved_models/lin_eval_models'
-    resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet}
-    os.makedirs(save_base_path, exist_ok=True)
+                (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet))
+    model = ResNetCIFAR().to(device)
+    model.load_state_dict(torch.load(resnet_model_pth))
+    X_train, y_train, X_test, y_test = collate_data(model)
+    logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
+    print(logistic.score(X_test, y_test))
+    # lin_eval_net = LinearEvaluation(method='lin', which_device=device, resnet_model_pth=resnet_model_pth, Nbits=None, symmetric=False).to(device)
+    # save_base_path = 'saved_models/lin_eval_models'
+    # resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet}
+    # os.makedirs(save_base_path, exist_ok=True)
     # batch_size = int(args.batchsize)
-    batch_size = int(512)
-    lin_eval_trainer = Trainer_LinEval(model=lin_eval_net, batch_size=batch_size, which_device=device, resnet_params=resnet_params,
-                                       lr=0.05, reg=0, log_every_n=50*256/batch_size)
-    lin_eval_trainer.train(100, save_base_path)
+    # batch_size = int(512)
+    # lin_eval_trainer = Trainer_LinEval(model=lin_eval_net, batch_size=batch_size, which_device=device, resnet_params=resnet_params,
+    #                                    lr=0.05, reg=0, log_every_n=50*256/batch_size)
+    # lin_eval_trainer.train(100, save_base_path)
+
+    
