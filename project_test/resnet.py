@@ -93,14 +93,16 @@ class ResNetCIFAR(nn.Module):
         # self.head_g will always be the same nonlinear stuff. 
         # For finetuning and training, use different members
         # instead of changing what the members are.
-        if self.lin_eval_key == 0 or self.lin_eval_key == 1:  # lin_eval_key 0 -> not doing lin_eval_key
-            # for finetuning and training and linear evaluation with nonlinear head
-            # See algorithm 1 in SimCLR paper. 
-            self.g_out = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
-            return self.g_out  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
-        if self.lin_eval_key == 2:  # this is for linear evaluation with linear/identity head
-            self.g_out = self.feat_1d
-            return self.g_out
+        self.g_out = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
+        return self.g_out  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
+        # if self.lin_eval_key == 0 or self.lin_eval_key == 1:  # lin_eval_key 0 -> not doing lin_eval_key
+        #     # for finetuning and training and linear evaluation with nonlinear head
+        #     # See algorithm 1 in SimCLR paper. 
+        #     self.g_out = self.head_g(self.feat_1d)  # this is z=g(h)=g(f(*))
+        #     return self.g_out  # note: g(*) does not reduce # of coordinates to 10, i.e., no logits
+        # if self.lin_eval_key == 2:  # this is for linear evaluation with linear/identity head
+        #     self.g_out = self.feat_1d
+        #     return self.g_out
 
 
 class LinearEvaluation(nn.Module):
@@ -111,8 +113,8 @@ class LinearEvaluation(nn.Module):
         # assert 0 == 1, "don't use this module yet"
         self.method = method
         self.valid_methods = {'identity': 2, # does not pass through head in ResNetCIFAR
-                              'lin': 2,  # does not pass through head in ResNetCIFAR
-                              'nonlin': 1}  # does pass through head in ResNetCIFAR
+                              'lin': 2}  # does not pass through head in ResNetCIFAR
+                              #'nonlin': 1}  # does pass through head in ResNetCIFAR
         self.to_logits = nn.Sequential(FP_Linear(64, 10, Nbits=None))  # linear eval needs logistic regression
 
         self.head_g = nn.Sequential(FP_Linear(64, 64, Nbits=None))
