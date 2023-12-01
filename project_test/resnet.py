@@ -38,7 +38,7 @@ class ResNet_Block(nn.Module):
 
 
 class ResNetCIFAR(nn.Module):
-    def __init__(self, num_layers=50, Nbits=None, symmetric=False, lin_eval_key=0):
+    def __init__(self, embed_dim, num_layers=50, Nbits=None, symmetric=False, lin_eval_key=0):
         lin_eval_key_dict = {0: 'output is returned after passing through self.head_g (e.g., training/fine-tuning)', 
                              1: 'nonlinear head for linear evaluation -> use same head as for training', 
                              2: "don't use default head (linear evaluation with identity or linear mapping)"}
@@ -79,9 +79,10 @@ class ResNetCIFAR(nn.Module):
         self.body_op = nn.Sequential(*self.body_op)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # self.head_g = FP_Linear(64, 10, Nbits=None)
-        self.head_g = nn.Sequential(FP_Linear(64, 64, Nbits=None), 
+        self.embed_dim = embed_dim
+        self.head_g = nn.Sequential(FP_Linear(64, self.embed_dim, Nbits=None), 
                                     nn.ReLU(True), 
-                                    FP_Linear(64, 64, Nbits=None))
+                                    FP_Linear(self.embed_dim, self.embed_dim, Nbits=None))
         self.lin_eval_key = lin_eval_key
 
     def forward(self, x):
@@ -107,6 +108,7 @@ class ResNetCIFAR(nn.Module):
 
 class LinearEvaluation(nn.Module):
     def __init__(self, method, resnet_model_pth, which_device, Nbits=None, symmetric=False):
+        assert 0 == 1, "do not use this module. Use scikit-learn's logistic regression"
         super(LinearEvaluation, self).__init__()
         # three heads: identity mapping; linear projection; and nonlinear projection
         # nonlinear: W2 * ReLu(W1 * h), where h=ResNet(*)=f(*)
