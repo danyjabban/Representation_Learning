@@ -22,7 +22,8 @@ class CIFAR10_SimCLR(CIFAR10):
                 
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.RandomResizedCrop(size=32, scale=(.8, 1.0)),
+            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+            transforms.RandomResizedCrop(size=32, scale=(.8, 1.0), antialias=True),
             transforms.RandomHorizontalFlip(p=0.5),
             get_color_distortion(),
           ]
@@ -30,7 +31,7 @@ class CIFAR10_SimCLR(CIFAR10):
         
         im1_trans = transform_train(img)
         im2_trans = transform_train(img)
-        return (im1_trans.permute(1,2,0), im2_trans.permute(1,2,0)), target
+        return im1_trans, im2_trans, target
 
 
 
