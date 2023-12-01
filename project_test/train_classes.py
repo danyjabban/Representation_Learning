@@ -8,8 +8,7 @@ import torchvision.transforms as transforms
 import torchvision
 import torch.nn as nn
 import torch.optim as optim
-
-from lars.lars import LARS
+from flash.core.optimizers import LARS
 
 from FP_layers import *
 
