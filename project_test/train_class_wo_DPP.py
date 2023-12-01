@@ -47,6 +47,6 @@ if __name__ == "__main__":
     batch_size = int(args.batchsize)
 
     model = ResNetCIFAR().to(device)
-    trainer = Trainer_wo_DDP(model, batch_size, lr=0.3*batch_size/256, reg=1e-6, 
+    trainer = Trainer_wo_DDP(model=model, batch_size=batch_size, lr=0.3*batch_size/256, reg=1e-6, which_device=device,
                              train_for_finetune=args.train_for_finetune, log_every_n=int(256/batch_size * 50))
     trainer.train(max_epochs=1000, save_base_path=save_base_path)
