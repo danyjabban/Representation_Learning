@@ -21,13 +21,13 @@ from resnet import LinearEvaluation
 
 class Trainer_wo_DDP():
     def __init__(
-        self, model,
+        self, model, which_device,
         batch_size, lr, reg, train_for_finetune: int, log_every_n=50, write=True
     ) -> None:
         super().__init__()
         # https://discuss.pytorch.org/t/extra-10gb-memory-on-gpu-0-in-ddp-tutorial/118113
         self.model = model
-        
+        self.device = which_device
         self.acc_steps = max(1, int(batch_size / 1024))
         # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
         # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
@@ -65,8 +65,8 @@ class Trainer_wo_DDP():
         train_loss = 0
         total = 0
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
-            augment_inputs1 = Trainer_wo_DDP.aug_dat(inputs).to(device)
-            augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(device)
+            augment_inputs1 = Trainer_wo_DDP.aug_dat(inputs).to(self.device)
+            augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.device)
             del inputs
             
             # with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
@@ -107,7 +107,7 @@ class Trainer_wo_DDP():
         total = 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(self.testloader):
-                augment_inputs1, augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(device), Trainer_wo_DDP.aug_dat(inputs).to(device)
+                augment_inputs1, augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.device), Trainer_wo_DDP.aug_dat(inputs).to(self.device)
                 outputs1, outputs2 = self.model(augment_inputs1), self.model(augment_inputs2)
                 loss = self.criterion(outputs1, outputs2)
 
@@ -182,7 +182,7 @@ class Trainer_wo_DDP():
 class Trainer_LinEval(Trainer_wo_DDP):
     def __init__(self, model: LinearEvaluation, which_device, batch_size, resnet_params, lr, reg, log_every_n=50):
         super().__init__(model,  # note: do not use self.model for training
-                         batch_size, lr, reg, train_for_finetune=0, log_every_n=log_every_n, write=True)  
+                         batch_size, lr, reg, which_device, train_for_finetune=0, log_every_n=log_every_n, write=True)  
         self.lin_eval_model = model  
         self.which_device = which_device
 
