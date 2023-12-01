@@ -8,8 +8,7 @@ import torchvision.transforms as transforms
 import torchvision
 import torch.nn as nn
 import torch.optim as optim
-
-from lars.lars import LARS
+from flash.core.optimizers import LARS
 
 from FP_layers import *
 
@@ -76,7 +75,7 @@ class Trainer_wo_DDP():
             del augment_inputs1
             del augment_inputs2
             loss = self.criterion(outputs1, outputs2)
-            loss.backward(retain_graph=True)
+            loss.backward()
             isnan = sum(torch.isnan(torch.tensor(torch.cat((outputs1.clone().detach(), outputs2.clone().detach())).clone().detach())).to('cpu').numpy().astype(int).flatten())
             del outputs1, outputs2
             # self.scaler.scale(loss).backward()
@@ -154,7 +153,7 @@ class Trainer_wo_DDP():
         augment = transforms.Compose([
                                     transforms.RandomCrop(32, padding=4),
                                     transforms.RandomHorizontalFlip(p=0.5),
-                                    transforms.RandomVerticalFlip(p=0.5),  # extra vertical flip?
+                                    # transforms.RandomVerticalFlip(p=0.5),  # extra vertical flip?
                                     torchvision.transforms.ColorJitter(0.5)
                                     ])
         # augment(batch) should be size [batch_size*1, 1, 32, 32]
@@ -175,13 +174,13 @@ class Trainer_wo_DDP():
 
         testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_gen)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
-        print('len(trainloader)', len(trainloader))
+        # print('len(trainloader)', len(trainloader))
         return trainloader, testloader
 
 
 
 class Trainer_LinEval(Trainer_wo_DDP):
-    def __init__(self, model: LinearEvaluation, which_device, batch_size, lr, reg, log_every_n=50):
+    def __init__(self, model: LinearEvaluation, which_device, batch_size, resnet_params, lr, reg, log_every_n=50):
         super().__init__(model,  # note: do not use self.model for training
                          batch_size, lr, reg, train_for_finetune=0, log_every_n=log_every_n, write=True)  
         self.lin_eval_model = model  
@@ -191,7 +190,7 @@ class Trainer_LinEval(Trainer_wo_DDP):
                                 momentum=0.875, weight_decay=self.reg, nesterov=True)
         self.criterion = nn.CrossEntropyLoss()
         self.start = time.time()
-
+        self.resnet_params = resnet_params
         # self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[int(epochs*0.5), 
         #                                                 int(epochs*0.75)], gamma=0.1)
         
@@ -199,8 +198,9 @@ class Trainer_LinEval(Trainer_wo_DDP):
     
     def _save_checkpoint(self, save_base_path: str):
         print("Saving...")
-        torch.save(self.lin_eval_model.state_dict(), "%s/lin_eval_bs_%d_lr_%g_reg_%g_method_%s.pt" 
-                                        % (save_base_path, int(self.batch_size * self.acc_steps), self.lr, self.reg, self.lin_eval_model.method))
+        torch.save(self.lin_eval_model.state_dict(), "%s/Resnet(epoch_%d_bs_%d)_LinEval(lr_%g_reg_%g_method_%s).pt" 
+                                        % (save_base_path, int(self.resnet_params['epoch']), 
+                                           int(self.resnet_params['bs']), self.lr, self.reg, self.lin_eval_model.method))
         return
 
     def _run_epoch(self, epoch):
@@ -261,8 +261,9 @@ class Trainer_LinEval(Trainer_wo_DDP):
         best_acc = 0
         self.start = time.time()
         self.scheduler  = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
-        file_name = "%s/lin_eval_loss_acc_%d_bs_%d_lr_%g_reg_%g_method_%s.txt" \
-                % (save_base_path, int(max_epochs), int(self.batch_size * self.acc_steps), self.lr, self.reg, self.lin_eval_model.method)
+        file_name = "%s/Resnet(epoch_%d_bs_%d)_LinEval(lr_%g_reg_%g_method_%s).txt" \
+                    % (save_base_path, int(self.resnet_params['epoch']), 
+                        int(self.resnet_params['bs']), self.lr, self.reg, self.lin_eval_model.method)
         if file_name not in os.listdir(save_base_path) and self.write:
             f_ptr = open(file_name, 'w')
             f_ptr.close()
