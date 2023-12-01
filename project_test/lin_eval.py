@@ -35,9 +35,10 @@ if __name__ == "__main__":
 
     lin_eval_net = LinearEvaluation(method='lin', which_device=device, resnet_model_pth=resnet_model_pth, Nbits=None, symmetric=False).to(device)
     save_base_path = 'saved_models/lin_eval_models'
+    resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet}
     os.makedirs(save_base_path, exist_ok=True)
     # batch_size = int(args.batchsize)
     batch_size = int(512)
-    lin_eval_trainer = Trainer_LinEval(model=lin_eval_net, batch_size=batch_size, which_device=device,
-                                       lr=0.1, reg=0, log_every_n=50*256/batch_size)
+    lin_eval_trainer = Trainer_LinEval(model=lin_eval_net, batch_size=batch_size, which_device=device, resnet_params=resnet_params,
+                                       lr=0.05, reg=0, log_every_n=50*256/batch_size)
     lin_eval_trainer.train(100, save_base_path)
