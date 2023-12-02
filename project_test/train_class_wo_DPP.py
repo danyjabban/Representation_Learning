@@ -41,7 +41,8 @@ if __name__ == "__main__":
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
     # from lars.lars import LARS
     # head = nn.Sequential(FP_Linear(64, 64, Nbits=None), nn.ReLU(True), FP_Linear(64, 64, Nbits=None))
-    save_base_path = "./saved_models/"
+    # save_base_path = "./saved_models"
+    save_base_path = "./saved_models/w_data_normalise_nesterovTrue"
     os.makedirs(save_base_path, exist_ok=True)
     # model = nn.parallel.DistributedDataParallel(ResNetCIFAR(head_g=head))
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
