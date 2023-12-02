@@ -80,9 +80,9 @@ class ResNetCIFAR(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         # self.head_g = FP_Linear(64, 10, Nbits=None)
         self.embed_dim = embed_dim
-        self.head_g = nn.Sequential(FP_Linear(64, self.embed_dim, Nbits=None), 
+        self.head_g = nn.Sequential(FP_Linear(64, 2048, Nbits=None), 
                                     nn.ReLU(True), 
-                                    FP_Linear(self.embed_dim, self.embed_dim, Nbits=None))
+                                    FP_Linear(2048, self.embed_dim, Nbits=None))
         self.lin_eval_key = lin_eval_key
 
     def forward(self, x):
