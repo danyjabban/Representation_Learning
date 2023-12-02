@@ -23,9 +23,9 @@ class CIFAR10_SimCLR(CIFAR10):
         transform_train = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-            transforms.RandomResizedCrop(size=32, scale=(.8, 1.0), antialias=True),
+            transforms.RandomResizedCrop(size=32, scale=(0.08, 1.0), antialias=True),
             transforms.RandomHorizontalFlip(p=0.5),
-            get_color_distortion(),
+            get_color_distortion(s=0.5),
           ]
         )
         
@@ -100,7 +100,7 @@ class CIFAR10_test(CIFAR10):
     
 
 
-def get_color_distortion(s=1):
+def get_color_distortion(s):
     # s is the strength of color distortion.
     color_jitter = transforms.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s)
     rnd_color_jitter = transforms.RandomApply([color_jitter], p=0.8)
