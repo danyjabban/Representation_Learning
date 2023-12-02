@@ -22,7 +22,7 @@ np.random.seed(0)  # just in case
 
 
 def collate_data(model):
-    trainloader, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0)
+    trainloader, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0, use_default=1)
     
     traindata_lst, trainlbl_lst = [], []
     for _, (batch, labels) in enumerate(trainloader):
@@ -42,14 +42,14 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--epoch_resnet', type=int, required=True)
     parser.add_argument('-b', '--batch_size_resnet', type=int, required=True)
     parser.add_argument('-l', '--lr_resnet', type=float, required=True)
-    # parser.add_argument('-b', '--batchsize', type=int, required=True)
+    parser.add_argument('-m', '--embed_dim', type=int, required=True)
     args = parser.parse_args()
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
 
-    resnet_model_pth = "./saved_models/epoch_%d_bs_%d_lr_%g_reg_1e-06.pt" % \
-                (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet))
-    model = ResNetCIFAR().to(device)
+    resnet_model_pth = "./saved_models/epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
+                (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet), args.embed_dim)
+    model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
     model.load_state_dict(torch.load(resnet_model_pth))
     X_train, y_train, X_test, y_test = collate_data(model)
     logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
