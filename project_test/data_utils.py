@@ -22,8 +22,8 @@ class CIFAR10_SimCLR(CIFAR10):
                 
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
-            transforms.RandomResizedCrop(size=32, scale=(0.08, 1.0), antialias=True),
+            #transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010)),
+            transforms.RandomResizedCrop(size=32),#, scale=(0.08, 1.0), antialias=True),
             transforms.RandomHorizontalFlip(p=0.5),
             get_color_distortion(s=0.5),
           ]
