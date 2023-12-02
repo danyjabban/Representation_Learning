@@ -22,9 +22,14 @@ np.random.seed(0)  # just in case
 
 
 def collate_data(model):
+    # trainloader, _ = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0, use_default=0)
+    # # use_default=0 -> trainloader uses all augmentations
+    # _, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0, use_default=1)
+    # # use_default=1 -> testloader does not use augmentations
+
     trainloader, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0, use_default=1)
-    
     traindata_lst, trainlbl_lst = [], []
+    # for _, (batch, _, labels) in enumerate(trainloader):
     for _, (batch, labels) in enumerate(trainloader):
         traindata_lst.extend(model(batch.to(device)).clone().detach().cpu().numpy())
         trainlbl_lst.extend(labels.cpu().numpy())
@@ -47,21 +52,25 @@ if __name__ == "__main__":
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
 
-    resnet_model_pth = "./saved_models/epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
+    # base_path = "./saved_models/w_data_normalise_nesterovTrue/"
+    base_path = "./saved_models/wo_data_normalise/"
+    resnet_model_pth = base_path + "epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
                 (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet), args.embed_dim)
     model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
     model.load_state_dict(torch.load(resnet_model_pth))
     X_train, y_train, X_test, y_test = collate_data(model)
     logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
     print(logistic.score(X_test, y_test))
-    # lin_eval_net = LinearEvaluation(method='lin', which_device=device, resnet_model_pth=resnet_model_pth, Nbits=None, symmetric=False).to(device)
-    # save_base_path = 'saved_models/lin_eval_models'
-    # resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet}
-    # os.makedirs(save_base_path, exist_ok=True)
-    # batch_size = int(args.batchsize)
+
+    # lin_eval_net = LinearEvaluation(embed_dim=args.embed_dim, method='lin', which_device=device, resnet_model_pth=resnet_model_pth, 
+    #                                 Nbits=None, symmetric=False).to(device)
+    # lin_eval_save_base_path = base_path + 'lin_eval_models/'
+    # resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet, 'lr': args.lr_resnet, 
+    #                  'embed_dim': args.embed_dim}
+    # os.makedirs(lin_eval_save_base_path, exist_ok=True)
     # batch_size = int(512)
     # lin_eval_trainer = Trainer_LinEval(model=lin_eval_net, batch_size=batch_size, which_device=device, resnet_params=resnet_params,
-    #                                    lr=0.05, reg=0, log_every_n=50*256/batch_size)
-    # lin_eval_trainer.train(100, save_base_path)
+    #                                    lr=0.1*batch_size/256, reg=0, log_every_n=50*256/batch_size)
+    # lin_eval_trainer.train(100, lin_eval_save_base_path)
 
     
