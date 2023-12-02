@@ -41,11 +41,11 @@ class Trainer_wo_DDP():
         self.log_every_n = log_every_n
 
         self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
-        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=False)
+        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
         self.warmup_iters = 10
         self.scheduler_warmup = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, 
                                                             total_iters=self.warmup_iters, verbose=False)
-        self.scheduler_after  = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=1000, verbose=False)
+        self.scheduler_after  = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=1000, eta_min=0.001, verbose=False)
         self.trainloader, self.testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(self.batch_size, self.train_for_finetune)
         self.global_steps = 0
 
@@ -151,7 +151,7 @@ class Trainer_wo_DDP():
         """
         transform_def = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            #transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
         ])
         trainset = CIFAR10_SimCLR(root='./data', train=True)
         testset = CIFAR10_SimCLR(root='./data', train=False)
