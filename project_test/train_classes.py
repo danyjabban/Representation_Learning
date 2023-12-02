@@ -143,23 +143,27 @@ class Trainer_wo_DDP():
     #     return augment(batch)
     
     @staticmethod
-    def cifar_dataloader_wo_ddp(bs: int, train_for_finetune: int):
-        # transform_gen = transforms.Compose([
-        #     transforms.ToTensor(),
-        #     transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        # ])
-        # trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_gen)
+    def cifar_dataloader_wo_ddp(bs: int, train_for_finetune: int, use_default: int = 0):
+        """
+        @param bs: batch size
+        @param train_for_finetune: whether the train data is split or not (90%/10% for pretraining and finetune)
+        @param use_default: 1 == the default CIFAR class is used
+        """
+        transform_def = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
         trainset = CIFAR10_SimCLR(root='./data', train=True)
+        testset = CIFAR10_SimCLR(root='./data', train=False)
+        if use_default == 1:  # use_default == 1 -> use default trainset and test sets
+            trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_def)
+            testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_def)
         if train_for_finetune == 1:
             print("training for eventual fine-tuning")
             trainset, _ = torch.utils.data.random_split(trainset, [0.9, 0.1], generator=torch.Generator().manual_seed(42))
 
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
-
-        # testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_gen)
-        testset = CIFAR10_SimCLR(root='./data', train=False)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
-        # print('len(trainloader)', len(trainloader))
         return trainloader, testloader
 
 
