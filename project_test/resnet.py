@@ -106,33 +106,34 @@ class ResNetCIFAR(nn.Module):
 
 
 class LinearEvaluation(nn.Module):
-    def __init__(self, embed_dim, method, resnet_model_pth, which_device, Nbits=None, symmetric=False):
+    def __init__(self, model, embed_dim, method, resnet_model_pth, which_device, Nbits=None, symmetric=False):
         # assert 0 == 1, "do not use this module. Use scikit-learn's logistic regression"
         super(LinearEvaluation, self).__init__()
         # three heads: identity mapping; linear projection; and nonlinear projection
         # nonlinear: W2 * ReLu(W1 * h), where h=ResNet(*)=f(*)
         # assert 0 == 1, "don't use this module yet"
         self.method = method
-        self.valid_methods = {'identity': 2, # does not pass through head in ResNetCIFAR
-                              'lin': 2}  # does not pass through head in ResNetCIFAR
+        self.valid_methods = {'identity', # does not pass through head in ResNetCIFAR
+                              'lin'}  # does not pass through head in ResNetCIFAR
                               #'nonlin': 1}  # does pass through head in ResNetCIFAR
 
-        self.head_g = nn.Sequential(FP_Linear(embed_dim, 64, Nbits=None))
-        self.to_logits = nn.Sequential(FP_Linear(64, 10, Nbits=None))  # linear eval needs logistic regression
-        assert self.method in self.valid_methods.keys()
-        
-        self.resnet = ResNetCIFAR(embed_dim=embed_dim, Nbits=Nbits, symmetric=symmetric).to(which_device)
+        # self.head_g = nn.Sequential(FP_Linear(embed_dim, 64, Nbits=None))  # if using ResNet.g_out, then use this line
+        self.head_g = FP_Linear(64, 64, Nbits=None)  # if using ResNet.feat_1d, then use this line
+        self.to_logits = FP_Linear(64, 10, Nbits=None)  # linear eval needs logistic regression
+        assert self.method in self.valid_methods
+        self.resnet = model
+        # self.resnet = ResNetCIFAR(embed_dim=embed_dim, Nbits=Nbits, symmetric=symmetric).to(which_device)
         # head_g = None -> model should return embeddings h=f(*) right after avg pool
-        self.resnet.load_state_dict(torch.load(resnet_model_pth))
+        # self.resnet.load_state_dict(torch.load(resnet_model_pth))
         self.embedding = None
         self.logits = None
     
     def forward(self, x):
         with torch.no_grad():
-            # _ = self.resnet(x).clone().detach().requires_grad_(True)
-            # self.embedding = self.resnet.feat_1d.clone().detach()
-
-            self.embedding = self.resnet(x).clone().detach()
+            out = self.resnet(x)#.clone().detach().requires_grad_(True)
+            self.embedding = self.resnet.feat_1d.clone().detach()
+            print(torch.norm(self.embedding, dim=-1))
+            # self.embedding = self.resnet(x).clone().detach()
             # print(self.embedding.shape)
         if self.method == 'lin': # linear projections
             self.logits = self.to_logits(self.head_g(self.embedding))
