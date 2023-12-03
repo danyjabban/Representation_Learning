@@ -30,7 +30,7 @@ class Trainer_wo_DDP():
         # https://discuss.pytorch.org/t/extra-10gb-memory-on-gpu-0-in-ddp-tutorial/118113
         self.model = model
         self.device = which_device
-        self.acc_steps = max(1, int(batch_size / 1024))
+        self.acc_steps = max(1, int(batch_size / 512))
         # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
         # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
         self.batch_size = int(batch_size / self.acc_steps)
