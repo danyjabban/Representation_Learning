@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 
 from FP_layers import *
 
-from resnet import *
+from resnet_pytorch import *
 from train_classes import *
 
 torch.manual_seed(0)  # for reproducibility
@@ -30,15 +30,19 @@ def collate_data(model):
     trainloader, testloader = Trainer_wo_DDP.cifar_dataloader_wo_ddp(bs=512, train_for_finetune=0, use_default=1)
     traindata_lst, trainlbl_lst = [], []
     # for _, (batch, _, labels) in enumerate(trainloader):
-    for _, (batch, labels) in enumerate(trainloader):
-        model(batch.to(device))
-        traindata_lst.extend(model.feat_1d.clone().detach().cpu().numpy())
+    for idx, (batch, labels) in enumerate(trainloader):
+        with torch.no_grad():
+            model(batch.to(device))
+        traindata_lst.extend(model.features.clone().detach().cpu().numpy())
         trainlbl_lst.extend(labels.cpu().numpy())
+        print("train idx %d", idx)
     testdata_lst, testlbl_lst = [], []
-    for _, (batch, labels) in enumerate(testloader):
-        model(batch.to(device))
-        testdata_lst.extend(model.feat_1d.clone().detach().cpu().numpy())
+    for idx, (batch, labels) in enumerate(testloader):
+        with torch.no_grad():
+            model(batch.to(device))
+        testdata_lst.extend(model.features.clone().detach().cpu().numpy())
         testlbl_lst.extend(labels.cpu().numpy())
+        print("test idx %d", idx)
     return np.array(traindata_lst), np.array(trainlbl_lst), np.array(testdata_lst), np.array(testlbl_lst)
 
 
@@ -53,14 +57,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
-
+    # device = torch.device('cpu')
     # base_path = "./saved_models/w_data_normalise_nesterovTrue/"
-    base_path = "./saved_models/wo_data_normalise/"
+    # base_path = "./saved_models/wo_data_normalise/"
+    # base_path = "./saved_models/woDatNormalise_nestTrue_Conv2dBiasTrue_lr1.5/"
+    base_path = "./saved_models/woDatNormalise_nestTrue_PyTorchResNet/"
     # base_path = "./saved_models/"
     resnet_model_pth = base_path + "epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
                 (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet), args.embed_dim)
-    model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
+    # model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
+    model = ResNet_PyTorch_wrapper(device=device, embed_dim=args.embed_dim).to(device)
+    # model.load_state_dict(torch.load(resnet_model_pth, map_location={'cuda:1': device}))
     model.load_state_dict(torch.load(resnet_model_pth))
+    print('successfully loaded')
     X_train, y_train, X_test, y_test = collate_data(model)
     logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
     print(logistic.score(X_test, y_test))
