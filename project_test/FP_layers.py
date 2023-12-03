@@ -88,7 +88,7 @@ class FP_Linear(nn.Module):
     
 
 class FP_Conv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=False, Nbits=None, symmetric=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True, Nbits=None, symmetric=False):
         super(FP_Conv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
