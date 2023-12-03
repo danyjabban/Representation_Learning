@@ -45,7 +45,8 @@ if __name__ == "__main__":
     # save_base_path = "./saved_models"
     # save_base_path = "./saved_models/w_data_normalise_nesterovTrue"
     # save_base_path = "./saved_models/woDatNormalise_nestTrue_Conv2dBiasTrue_lr1.5/"
-    save_base_path = "./saved_models/woDatNormalise_nestTrue_PyTorchResNet/"
+    # save_base_path = "./saved_models/woDatNormalise_nestTrue_PyTorchResNet/"
+    save_base_path = "./saved_models/PyTorchResNet_lr_1/"
     os.makedirs(save_base_path, exist_ok=True)
     # model = nn.parallel.DistributedDataParallel(ResNetCIFAR(head_g=head))
     # model = nn.DataParallel(ResNetCIFAR(head_g=head))
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     batch_size = int(args.batchsize)
 
     # model = ResNetCIFAR(embed_dim=args.embed_dim).to(device) # lr=0.3*batch_size/256
-    model = ResNet_PyTorch_wrapper(device=device, embed_dim=args.embed_dim).to(device) # lr=0.3*batch_size/256
-    trainer = Trainer_wo_DDP(model=model, batch_size=batch_size, lr=0.3*batch_size/256, reg=1e-6, which_device=device,
+    model = ResNet_PyTorch_wrapper(embed_dim=args.embed_dim).to(device) # lr=0.3*batch_size/256
+    trainer = Trainer_wo_DDP(model=model, batch_size=batch_size, lr=1, reg=1e-6, which_device=device,
                              train_for_finetune=args.train_for_finetune, log_every_n=int(256/batch_size * 50))
     trainer.train(max_epochs=1000, save_base_path=save_base_path)
