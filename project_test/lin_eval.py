@@ -31,11 +31,13 @@ def collate_data(model):
     traindata_lst, trainlbl_lst = [], []
     # for _, (batch, _, labels) in enumerate(trainloader):
     for _, (batch, labels) in enumerate(trainloader):
-        traindata_lst.extend(model(batch.to(device)).clone().detach().cpu().numpy())
+        model(batch.to(device))
+        traindata_lst.extend(model.feat_1d.clone().detach().cpu().numpy())
         trainlbl_lst.extend(labels.cpu().numpy())
     testdata_lst, testlbl_lst = [], []
     for _, (batch, labels) in enumerate(testloader):
-        testdata_lst.extend(model(batch.to(device)).clone().detach().cpu().numpy())
+        model(batch.to(device))
+        testdata_lst.extend(model.feat_1d.clone().detach().cpu().numpy())
         testlbl_lst.extend(labels.cpu().numpy())
     return np.array(traindata_lst), np.array(trainlbl_lst), np.array(testdata_lst), np.array(testlbl_lst)
 
@@ -54,6 +56,7 @@ if __name__ == "__main__":
 
     # base_path = "./saved_models/w_data_normalise_nesterovTrue/"
     base_path = "./saved_models/wo_data_normalise/"
+    # base_path = "./saved_models/"
     resnet_model_pth = base_path + "epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
                 (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet), args.embed_dim)
     model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
@@ -62,7 +65,9 @@ if __name__ == "__main__":
     logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
     print(logistic.score(X_test, y_test))
 
-    # lin_eval_net = LinearEvaluation(embed_dim=args.embed_dim, method='lin', which_device=device, resnet_model_pth=resnet_model_pth, 
+    # model = ResNetCIFAR(embed_dim=args.embed_dim).to(device)
+    # model.load_state_dict(torch.load(resnet_model_pth))
+    # lin_eval_net = LinearEvaluation(model=model, embed_dim=args.embed_dim, method='lin', which_device=device, resnet_model_pth=resnet_model_pth, 
     #                                 Nbits=None, symmetric=False).to(device)
     # lin_eval_save_base_path = base_path + 'lin_eval_models/'
     # resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet, 'lr': args.lr_resnet, 
