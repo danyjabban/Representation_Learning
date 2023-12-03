@@ -249,7 +249,7 @@ def resnet50(**kwargs):
 
 
 class ResNet_PyTorch_wrapper(nn.Module):
-    def __init__(self, device, embed_dim=128, Nbits=None, symmetric=False):
+    def __init__(self, embed_dim=128, Nbits=None, symmetric=False):
         super(ResNet_PyTorch_wrapper, self).__init__()
 
         self.f = []
