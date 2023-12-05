@@ -12,7 +12,8 @@ from flash.core.optimizers import LARS
 
 from FP_layers import *
 
-from resnet import ResNetCIFAR, ContrastiveLoss, LinearEvaluation
+from lin_eval_class import ContrastiveLoss, LinearEvaluation
+from resnet_pytorch import ResNet_PyTorch_wrapper
 
 from tqdm import tqdm
 
@@ -23,7 +24,7 @@ from data_utils import *
 
 class Trainer_wo_DDP():
     def __init__(
-        self, model: ResNetCIFAR, which_device,
+        self, model: ResNet_PyTorch_wrapper, which_device,
         batch_size, lr, reg, train_for_finetune: int, log_every_n=50, write=True
     ) -> None:
         super().__init__()
@@ -175,11 +176,10 @@ class Trainer_LinEval(Trainer_wo_DDP):
     
     def _save_checkpoint(self, save_base_path: str):
         print("Saving...")
-        torch.save(self.lin_eval_model.state_dict(), "%s/Resnet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_LinEval(lr_%g_reg_%g_method_%s).pt" 
+        torch.save(self.lin_eval_model.state_dict(), "%s/Resnet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_LinEval(lr_%g_reg_%g).pt" 
                                         % (save_base_path, int(self.resnet_params['epoch']), 
                                            int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
-                                           int(self.resnet_params['embed_dim']), self.lr, self.reg, 
-                                           self.lin_eval_model.method))
+                                           int(self.resnet_params['embed_dim']), self.lr, self.reg))
         return
 
     def _run_epoch(self, epoch):
@@ -249,7 +249,7 @@ class Trainer_LinEval(Trainer_wo_DDP):
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
         for epoch in tqdm(range(max_epochs), desc='ResNet_lin_eval_bs_%d' % (self.batch_size * self.acc_steps)):
-            val_loss, val_acc = self._run_epoch(epoch)  # whether optimizer step happens is determined by batch_idx, not epoch
+            val_loss, val_acc = self._run_epoch(epoch)
             # if self.write:
             #     f_ptr = open(file_name, 'a')
             #     f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
@@ -258,3 +258,126 @@ class Trainer_LinEval(Trainer_wo_DDP):
             if best_acc < val_acc:  # note: since counting from 0 -> when saving add 1.
                 best_acc = val_acc
                 self._save_checkpoint(save_base_path)
+
+
+
+class Trainer_FineTune():
+    def __init__(self, model: LinearEvaluation, which_device, batch_size, lr, reg, labelled_perc, log_every_n=50, write=True):
+        self.model = model
+        self.device = which_device
+        self.acc_steps = max(1, int(batch_size / 512))
+        # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
+        # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
+        self.batch_size = int(batch_size / self.acc_steps)
+        assert self.batch_size == np.round(batch_size / self.acc_steps)
+        self.lr = lr
+        self.reg = reg
+        self.log_every_n = log_every_n
+
+        self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
+        self.global_steps = 0
+
+        self.write = write
+        self.labelled_perc = labelled_perc  # percentage, i.e. 100->1
+        self.trainloader, self.testloader = Trainer_FineTune.cifar_dataloader_tune(bs=self.batch_size, 
+                                                                                   labelled_perc=self.labelled_perc)
+
+    
+    def _save_checkpoint(self, save_base_path: str):
+        print("Saving...")
+        torch.save(self.lin_eval_model.state_dict(), "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_percTrain_%g).pt" 
+                                        % (save_base_path, int(self.resnet_params['epoch']), 
+                                           int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
+                                           int(self.resnet_params['embed_dim']), self.lr, self.labelled_perc))
+        return
+
+    def _run_epoch(self):
+        """
+        Start the training code.
+        """
+        self.lin_eval_model.train()
+        
+        train_loss = 0
+        correct = 0
+        total = 0  # if using self.trainloader use_default=0
+        for batch_idx, (inputs, targets) in enumerate(self.trainloader):
+            inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
+            self.optimizer.zero_grad()
+            outputs = self.lin_eval_model(inputs)
+            loss = self.criterion(outputs, targets)
+            loss.backward()
+
+            self.optimizer.step()
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+            self.global_steps += 1
+
+            if self.global_steps % self.log_every_n == 0:
+                end = time.time()
+                num_examples_per_second = self.log_every_n * self.batch_size / (end - self.start)
+                print("[Step=%d]\tLoss=%.4f\tacc=%.4f\t%.1f examples/second"
+                      % (self.global_steps, train_loss / (batch_idx + 1), (correct / total), num_examples_per_second))
+                self.start = time.time()
+
+        # self.scheduler.step()
+
+        """
+        Start the testing code.
+        """
+        self.lin_eval_model.eval()
+        test_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(self.testloader):
+                inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
+                outputs = self.lin_eval_model(inputs)
+                loss = self.criterion(outputs, targets)
+
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+        num_val_steps = len(self.testloader)
+        val_acc = correct / total
+        print("Test Loss=%.4f, Test acc=%.4f" % (test_loss / (num_val_steps), val_acc))
+        return test_loss / (num_val_steps), val_acc
+
+    def train(self, max_epochs: int, save_base_path: str):
+        best_acc = 0
+        self.start = time.time()
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
+        file_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_percTrain_%g).txt" \
+                            % (save_base_path, int(self.resnet_params['epoch']), 
+                                int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
+                                int(self.resnet_params['embed_dim']), self.lr, self.labelled_perc)
+        if file_name not in os.listdir(save_base_path) and self.write:
+            f_ptr = open(file_name, 'w')
+            f_ptr.close()
+        self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
+        # in _run_epoch
+        for epoch in tqdm(range(max_epochs), desc='ResNet_Tune_bs_%d' % (self.batch_size * self.acc_steps)):
+            val_loss, val_acc = self._run_epoch(epoch)  # whether optimizer step happens is determined by batch_idx, not epoch
+            if self.write:
+                f_ptr = open(file_name, 'a')
+                f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
+                f_ptr.close()
+            if best_acc < val_acc:  # note: since counting from 0 -> when saving add 1.
+                best_acc = val_acc
+                self._save_checkpoint(save_base_path)
+    
+    @staticmethod
+    def cifar_dataloader_tune(bs: int, labelled_perc: float):
+        """
+        @param bs: batch size
+        @param labelled_perc: percentage of labelled data
+        """
+        trainset = CIFAR10_finetune(root='./data', train=True, labelled_perc)
+        testset = CIFAR10_finetune(root='./data', train=False, labelled_perc)
+
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
+        return trainloader, testloader
