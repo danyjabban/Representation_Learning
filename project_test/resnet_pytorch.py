@@ -249,7 +249,7 @@ def resnet50(**kwargs):
 
 
 class ResNet_PyTorch_wrapper(nn.Module):
-    def __init__(self, embed_dim=128, Nbits=None, symmetric=False):
+    def __init__(self, embed_dim=128, Nbits=None, symmetric=False, lin_eval_flag=False):
         super(ResNet_PyTorch_wrapper, self).__init__()
 
         self.f = []
@@ -258,10 +258,9 @@ class ResNet_PyTorch_wrapper(nn.Module):
                 module = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             if not isinstance(module, nn.Linear) and not isinstance(module, nn.MaxPool2d):
                 self.f.append(module)
-        
+        self.lin_eval_flag = lin_eval_flag
         # encoder
         self.f = nn.Sequential(*self.f)
-        # self.f = resnet50(Nbits=Nbits, symmetric=symmetric).to(device)
         # projection head
         self.embed_dim = embed_dim
         self.g = nn.Sequential(nn.Linear(2048, 512, bias=False), nn.BatchNorm1d(512),
@@ -270,5 +269,7 @@ class ResNet_PyTorch_wrapper(nn.Module):
     def forward(self, x):
         x = self.f(x)
         self.features = torch.flatten(x, start_dim=1)
+        if self.lin_eval_flag:
+            return self.features
         self.g_out = F.normalize(self.g(self.features), dim=-1)
         return self.g_out
