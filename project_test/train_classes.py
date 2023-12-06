@@ -11,7 +11,6 @@ import torch.optim as optim
 from flash.core.optimizers import LARS
 
 from FP_layers import *
-
 from lin_eval_class import ContrastiveLoss, LinearEvaluation
 from resnet_pytorch import ResNet_PyTorch_wrapper
 
@@ -42,7 +41,7 @@ class Trainer_wo_DDP():
         self.log_every_n = log_every_n
 
         self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
-        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
+        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=False)
         self.warmup_iters = 10
         self.scheduler_warmup = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, 
                                                             total_iters=self.warmup_iters, verbose=False)
@@ -262,7 +261,10 @@ class Trainer_LinEval(Trainer_wo_DDP):
 
 
 class Trainer_FineTune():
-    def __init__(self, model: LinearEvaluation, which_device, batch_size, lr, reg, labelled_perc, log_every_n=50, write=True):
+    def __init__(self, model, which_device, batch_size, lr, reg, resnet_params, device,
+                 labelled_perc, save_base_path: str, log_every_n=50, write=True):
+        super().__init__()
+        self.which_device = device
         self.model = model
         self.device = which_device
         self.acc_steps = max(1, int(batch_size / 512))
@@ -273,30 +275,41 @@ class Trainer_FineTune():
         self.lr = lr
         self.reg = reg
         self.log_every_n = log_every_n
+        self.resnet_params = resnet_params
 
-        self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
-        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
+        self.criterion = nn.CrossEntropyLoss()
+        # self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
+        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
         self.global_steps = 0
 
         self.write = write
-        self.labelled_perc = labelled_perc  # percentage, i.e. 100->1
+        self.labelled_perc = labelled_perc  # percentage, i.e. 100% = 1
+        self.fname_train = 'tune_idx_p=%d.txt' % self.labelled_perc
+        self.save_base_path = save_base_path
+        write_indices(p=self.labelled_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
         self.trainloader, self.testloader = Trainer_FineTune.cifar_dataloader_tune(bs=self.batch_size, 
-                                                                                   labelled_perc=self.labelled_perc)
-
+                                                                                   fname_train=self.fname_train, 
+                                                                                   save_base_path=self.save_base_path)
+        return
     
-    def _save_checkpoint(self, save_base_path: str):
+    def _save_checkpoint(self):
         print("Saving...")
-        torch.save(self.lin_eval_model.state_dict(), "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_percTrain_%g).pt" 
-                                        % (save_base_path, int(self.resnet_params['epoch']), 
-                                           int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
-                                           int(self.resnet_params['embed_dim']), self.lr, self.labelled_perc))
+        torch.save(self.model.state_dict(), "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g).pt" 
+                                        % (self.save_base_path, 
+                                           int(self.resnet_params['epoch']), 
+                                           int(self.resnet_params['bs']), 
+                                           float(self.resnet_params['lr']),  
+                                           int(self.resnet_params['embed_dim']), 
+                                           self.lr, 
+                                           int(self.batch_size * self.acc_steps), 
+                                           self.labelled_perc))
         return
 
     def _run_epoch(self):
         """
         Start the training code.
         """
-        self.lin_eval_model.train()
+        self.model.train()
         
         train_loss = 0
         correct = 0
@@ -304,7 +317,7 @@ class Trainer_FineTune():
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
             inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
             self.optimizer.zero_grad()
-            outputs = self.lin_eval_model(inputs)
+            outputs = self.model(inputs)
             loss = self.criterion(outputs, targets)
             loss.backward()
 
@@ -314,6 +327,9 @@ class Trainer_FineTune():
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
             self.global_steps += 1
+            if (batch_idx + 1) % self.acc_steps == 0 or (batch_idx + 1 == len(self.trainloader)):
+                self.optimizer.step()
+                self.optimizer.zero_grad()
 
             if self.global_steps % self.log_every_n == 0:
                 end = time.time()
@@ -322,19 +338,19 @@ class Trainer_FineTune():
                       % (self.global_steps, train_loss / (batch_idx + 1), (correct / total), num_examples_per_second))
                 self.start = time.time()
 
-        # self.scheduler.step()
+        self.scheduler.step()
 
         """
         Start the testing code.
         """
-        self.lin_eval_model.eval()
+        self.model.eval()
         test_loss = 0
         correct = 0
         total = 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(self.testloader):
                 inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
-                outputs = self.lin_eval_model(inputs)
+                outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
 
                 test_loss += loss.item()
@@ -346,37 +362,36 @@ class Trainer_FineTune():
         print("Test Loss=%.4f, Test acc=%.4f" % (test_loss / (num_val_steps), val_acc))
         return test_loss / (num_val_steps), val_acc
 
-    def train(self, max_epochs: int, save_base_path: str):
+    def train(self, max_epochs: int):
         best_acc = 0
         self.start = time.time()
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
         file_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_percTrain_%g).txt" \
-                            % (save_base_path, int(self.resnet_params['epoch']), 
+                            % (self.save_base_path, int(self.resnet_params['epoch']), 
                                 int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
                                 int(self.resnet_params['embed_dim']), self.lr, self.labelled_perc)
-        if file_name not in os.listdir(save_base_path) and self.write:
+        if file_name not in os.listdir(self.save_base_path) and self.write:
             f_ptr = open(file_name, 'w')
             f_ptr.close()
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
         for epoch in tqdm(range(max_epochs), desc='ResNet_Tune_bs_%d' % (self.batch_size * self.acc_steps)):
-            val_loss, val_acc = self._run_epoch(epoch)  # whether optimizer step happens is determined by batch_idx, not epoch
+            val_loss, val_acc = self._run_epoch()  # whether optimizer step happens is determined by batch_idx, not epoch
             if self.write:
                 f_ptr = open(file_name, 'a')
                 f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
                 f_ptr.close()
             if best_acc < val_acc:  # note: since counting from 0 -> when saving add 1.
                 best_acc = val_acc
-                self._save_checkpoint(save_base_path)
+                self._save_checkpoint()
     
     @staticmethod
-    def cifar_dataloader_tune(bs: int, labelled_perc: float):
+    def cifar_dataloader_tune(bs: int, fname_train: float, save_base_path):
         """
         @param bs: batch size
         @param labelled_perc: percentage of labelled data
         """
-        trainset = CIFAR10_finetune(root='./data', train=True, labelled_perc)
-        testset = CIFAR10_finetune(root='./data', train=False, labelled_perc)
+        trainset, testset = get_train_test_sets(fname_train, base_path=save_base_path)
 
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
