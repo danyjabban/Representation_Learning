@@ -8,6 +8,7 @@ import torch
 from torchvision import transforms
 from torchvision.datasets import CIFAR10
 from torch.utils.data import Subset 
+import random
 
 
 class CIFAR10_SimCLR(CIFAR10):
@@ -112,11 +113,9 @@ def get_color_distortion(s):
 
 
 
-def get_indices(p, ds):
-    # torch.manual_seed(0)
-    # num_inds = round(p * l)
-    # inds = torch.randperm(l)[:num_inds]
-    # return inds
+def get_indices(p, ds, seed=661):
+    if seed:
+        random.seed(seed)
     
     classes = dict()
     for i in range(len(ds)):
@@ -125,9 +124,8 @@ def get_indices(p, ds):
         
     class_list = []
     for k in classes.keys():
+        random.shuffle(classes[k])
         class_list = class_list + classes[k][:int(len(classes[k])*p)]
         
     return class_list
-
-
 
