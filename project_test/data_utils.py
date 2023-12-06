@@ -3,6 +3,7 @@ Dataset Utils
 """
 
 import numpy as np
+import os
 from PIL import Image
 import torch
 from torchvision import transforms
@@ -73,13 +74,12 @@ class CIFAR10_train(CIFAR10):
         
         transform_train = transforms.Compose([
             transforms.ToTensor(),
-            transforms.RandomResizedCrop(size=32, scale=(.8, 1.0)),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))])
-            
-            
+            transforms.RandomResizedCrop(size=32, antialias=True),
+            transforms.RandomHorizontalFlip(p=0.5)
+            #transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
+            ])
         img = transform_train(img)
-        return img.permute(1,2,0), target
+        return img, target
     
 
 class CIFAR10_test(CIFAR10):
@@ -97,7 +97,7 @@ class CIFAR10_test(CIFAR10):
             # transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))])
             
         img = transform_test(img)
-        return img.permute(1,2,0), target
+        return img, target
     
 
 
@@ -129,3 +129,36 @@ def get_indices(p, ds, seed=661):
         
     return class_list
 
+
+def write_indices(p, fname_train, base_path):
+    """
+    p: fraction of train data that's included in finetuning
+    """
+    trainset_dummy = CIFAR10_train(train=True)
+    os.makedirs(base_path, exist_ok=True)
+    if fname_train not in set(os.listdir(base_path)):
+        fptr = open(base_path + fname_train, 'w')
+        train_idx = get_indices(p, ds=trainset_dummy)
+        print(len(train_idx), p)
+        for _, idx in enumerate(train_idx):
+            fptr.write("%d\n" % idx)
+        fptr.close()
+    else:
+        print(base_path + fname_train, "already exists")
+    return
+
+
+def get_train_test_sets(fname_train, base_path):
+    def read_indices(fname, base_path):
+        fptr = open(base_path + fname, 'r')
+        lines = fptr.readlines()
+        fptr.close()
+        ret = []
+        for i in lines:
+            ret.append(int(i))
+        return ret
+    train_set = Subset(CIFAR10_train(train=True), read_indices(fname_train, base_path))
+    # ^^ uses train data and train transformation
+
+    test_set = CIFAR10_test(train=False)
+    return train_set, test_set
