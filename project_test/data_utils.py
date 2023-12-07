@@ -17,7 +17,7 @@ class CIFAR10_SimCLR(CIFAR10):
     CIFAR Dataset object for simCLR data
     """
     def __init__(self, root='data', train=True):
-        super().__init__(root, train)
+        super().__init__(root, train, download=True)
         
     def __getitem__(self, idx):
         img, target = self.data[idx], self.targets[idx]
@@ -42,7 +42,7 @@ class CIFAR10_RotNet(CIFAR10):
     CIFAR Dataset object for RotNet data
     """
     def __init__(self, root='data', train=True):
-        super().__init__(root, train)
+        super().__init__(root, train, download=True)
         
     def __getitem__(self, idx):
         img, target = self.data[idx], self.targets[idx]
@@ -52,13 +52,13 @@ class CIFAR10_RotNet(CIFAR10):
             transform_train = transforms.Compose([
                 transforms.ToTensor(),
                 transforms.RandomRotation((rot,rot)),
-                transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))])
+                transforms.Normalize(mean=(125.3/255.0, 123.0/255.0, 113.9/255.0), std=(63.0/255.0, 62.1/255.0, 66.7/255.0))])
             
             im_rot = transform_train(img)
-            rot_ims.append(im_rot.permute(1,2,0))
+            rot_ims.append(im_rot)
         rot_ims = torch.stack(rot_ims)
         
-        return rot_ims, torch.tensor([1,2,3,4])
+        return rot_ims, torch.LongTensor([0, 1, 2, 3])
     
     
     
@@ -67,7 +67,7 @@ class CIFAR10_train(CIFAR10):
     CIFAR Dataset object for finetuning
     """
     def __init__(self, root='data', train=True):
-        super().__init__(root, train)
+        super().__init__(root, train, download=True)
         
     def __getitem__(self, idx):
         img, target = self.data[idx], self.targets[idx]
@@ -87,7 +87,7 @@ class CIFAR10_test(CIFAR10):
     CIFAR Dataset object for finetuning
     """
     def __init__(self, root='data', train=False):
-        super().__init__(root, train)
+        super().__init__(root, train, download=True)
     
     def __getitem__(self, idx):
         img, target = self.data[idx], self.targets[idx]
