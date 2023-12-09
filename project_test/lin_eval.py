@@ -57,6 +57,7 @@ if __name__ == "__main__":
        gpu_dict[int(key)] = int(val)
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('-f', '--fname', type=str, required=True)
     parser.add_argument('-e', '--epoch_resnet', type=int, required=True)
     parser.add_argument('-b', '--batch_size_resnet', type=int, required=True)
     parser.add_argument('-l', '--lr_resnet', type=float, required=True)
@@ -76,8 +77,9 @@ if __name__ == "__main__":
 
     X_train, y_train, X_test, y_test = collate_data(model, device)
     logistic = LogisticRegression(n_jobs=-1, max_iter=250).fit(X_train, y_train)
-    print(logistic.score(X_test, y_test))
-
+    fptr = open(args.fname, 'a')
+    fptr.write('%d,%d,%g,%d,%.8f\n' % (args.batch_size_resnet, args.epoch_resnet, args.lr_resnet, args.embed_dim, logistic.score(X_test, y_test)))
+    fptr.close()
     # lin_eval_net = LinearEvaluation(model=model).to(device)
     # lin_eval_save_base_path = base_path + 'lin_eval_models/'
     # resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet, 'lr': args.lr_resnet, 
