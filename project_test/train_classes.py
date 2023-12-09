@@ -41,7 +41,7 @@ class Trainer_wo_DDP():
         self.log_every_n = log_every_n
 
         self.criterion = ContrastiveLoss(batch_size, temperature=0.5)
-        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=False)
+        self.optimizer = LARS(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
         self.warmup_iters = 10
         self.scheduler_warmup = optim.lr_scheduler.LinearLR(self.optimizer, start_factor=0.01, end_factor=1.0, 
                                                             total_iters=self.warmup_iters, verbose=False)

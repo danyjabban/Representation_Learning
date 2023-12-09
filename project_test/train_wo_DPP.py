@@ -41,7 +41,6 @@ if __name__ == "__main__":
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
     # device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    # save_base_path = "./saved_models/woDatNormalise_nestTrue_Conv2dBiasTrue_lr1.5/"
     save_base_path = "./saved_models/PyTorchResNet_woDatNormalise/"
     os.makedirs(save_base_path, exist_ok=True)
 
