@@ -12,14 +12,14 @@ from data_utils import *
 from rotnet_pytorch import NetworkInNetwork
 
 class RotNetTrainer():
-    def __init__(self, model: NetworkInNetwork, batch_size,
+    def __init__(self, model: NetworkInNetwork, batch_size, device,
                  lr=.1, reg=5e-4, momentum=.9, log_every_n=5, 
                  nesterov=True, write=True) -> None:
         super().__init__()
         self.model = model
         self.batch_size = batch_size
         self.lr = lr
-        self.device = 'cuda'
+        self.device = device
         self.reg = reg
         self.log_every_n = log_every_n
         self.write = write
