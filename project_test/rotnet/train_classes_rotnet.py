@@ -11,7 +11,6 @@ from data_utils import *
 
 from rotnet_pytorch import NetworkInNetwork
 
-
 class RotNetTrainer():
     def __init__(self, model: NetworkInNetwork, batch_size,
                  lr=.1, reg=5e-4, momentum=.9, log_every_n=5, 
