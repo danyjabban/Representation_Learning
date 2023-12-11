@@ -2,8 +2,9 @@ import subprocess
 import concurrent 
 from concurrent.futures import wait, as_completed
 import os
-from os.path import join, dirname
+import argparse
 from tqdm import tqdm
+import re
 
 import numpy as np
 
@@ -22,15 +23,25 @@ def gen_inputs():
 
 if __name__ == '__main__':
     f_name = 'lin_eval_res.txt'
-    lin_eval_base_path = './saved_models/PyTorchResNet_woDatNormalise/lin_eval/'
+    num_proc = 4
+    futures = []
+
+    parser = argparse.ArgumentParser()
+    # base_path == ./saved_models/PyTorchResNet_woDatNormalise/ or 
+    # base_path == ./saved_models/wo_data_normalise_simple_resnet/
+    parser.add_argument('-n', '--base_path', type=str, required=True)
+    args = parser.parse_args()
+    path_to_models_dir = args.base_path
+
+    lin_eval_base_path = path_to_models_dir + 'lin_eval/'
+    os.makedirs(lin_eval_base_path, exist_ok=True)
     if 'lin_eval_res.txt' not in os.listdir(lin_eval_base_path):
         print('yes')
         f_ptr = open(lin_eval_base_path + f_name, 'w')
         f_ptr.write("batch_size_resnet,epoch_resnet,lr_resnet,embed_dim,score\n")
     else:
         pass  # file exists, the children processes will open the file
-    num_proc = 4
-    futures = []
+
     args_dict = gen_inputs()
 
     pbar = tqdm(total=len(args_dict.keys()), desc='lin_eval_multiproc')
@@ -44,6 +55,7 @@ if __name__ == '__main__':
                                            "--batch_size_resnet", str(args[1]),
                                            "--lr_resnet", str(args[2]),
                                            "--embed_dim", str(128),
+                                           "--base_path", str(path_to_models_dir)
                                            ],
                                            capture_output=True, text=True))
         for idx, future in enumerate(as_completed(futures)):

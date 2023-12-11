@@ -15,6 +15,7 @@ from FP_layers import *
 
 from resnet_pytorch import *
 from train_classes import *
+from resnet_old import ResNetCIFAR
 
 torch.manual_seed(0)  # for reproducibility
 random.seed(0)  # just in case
@@ -62,17 +63,26 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--batch_size_resnet', type=int, required=True)
     parser.add_argument('-l', '--lr_resnet', type=float, required=True)
     parser.add_argument('-m', '--embed_dim', type=int, required=True)
+    parser.add_argument('-n', '--base_path', type=str, required=True)
     args = parser.parse_args()
 
     # device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
     device = torch.device('cuda:%d' % int(gpu_dict[args.batch_size_resnet]) if torch.cuda.is_available() else 'cpu')
-    base_path = "./saved_models/PyTorchResNet_woDatNormalise/"  # where to find the resnet models
-    resnet_model_pth = base_path + "epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
+    # base_path = "./saved_models/PyTorchResNet_woDatNormalise/"  # where to find the resnet models
+    resnet_model_pth = args.base_path + "epoch_%d_bs_%d_lr_%g_reg_1e-06_embedDim_%d.pt" % \
                 (args.epoch_resnet, args.batch_size_resnet, float(args.lr_resnet), args.embed_dim)
     # which resnet model to use
-    
     model = ResNet_PyTorch_wrapper(embed_dim=args.embed_dim, lin_eval_flag=True).to(device)
-    model.load_state_dict(torch.load(resnet_model_pth))
+    if os.path.basename(os.path.normpath(args.base_path)) == 'wo_data_normalise_simple_resnet':
+        # os.path.basename ... gets the last part of the path, similar to c function namex
+        # (file systems lab ece353, kernel/fs.c line 679)
+        model = ResNetCIFAR(embed_dim=args.embed_dim, num_layers=50, Nbits=None, symmetric=False, lin_eval_flag=True).to(device)
+    
+    try:
+        model.load_state_dict(torch.load(resnet_model_pth))
+    except FileNotFoundError:
+        print("this model %s doesn't exist" % resnet_model_pth)
+        exit(-1)
     print('successfully loaded')
 
     X_train, y_train, X_test, y_test = collate_data(model, device)
