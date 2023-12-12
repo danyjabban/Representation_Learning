@@ -20,6 +20,8 @@ from tqdm import tqdm
 
 from data_utils import *
 
+from prune_utils import prune_net
+
 
 class Trainer_wo_DDP():
     def __init__(
@@ -144,10 +146,7 @@ class Trainer_wo_DDP():
         if use_default == 1:  # use_default == 1 -> use default trainset and test sets
             trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform_def)
             testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform_def)
-        if train_for_finetune == 1:
-            print("training for eventual fine-tuning")
-            trainset, _ = torch.utils.data.random_split(trainset, [0.9, 0.1], generator=torch.Generator().manual_seed(42))
-
+        assert train_for_finetune == 0, "don't use train_for_finetune option, use the separate fine-tune class"
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
         return trainloader, testloader
@@ -262,7 +261,8 @@ class Trainer_LinEval(Trainer_wo_DDP):
 
 class Trainer_FineTune():
     def __init__(self, model, which_device, batch_size, lr, reg, resnet_params, device,
-                 labelled_perc, save_base_path: str, log_every_n=50, write=True):
+                 labelled_perc, save_base_path: str, log_every_n=50, write=True, 
+                 prune: bool = False, prune_percent: float = -1):
         super().__init__()
         self.which_device = device
         self.model = model
@@ -290,11 +290,12 @@ class Trainer_FineTune():
         self.trainloader, self.testloader = Trainer_FineTune.cifar_dataloader_tune(bs=self.batch_size, 
                                                                                    fname_train=self.fname_train, 
                                                                                    save_base_path=self.save_base_path)
-        return
-    
-    def _save_checkpoint(self):
-        print("Saving...")
-        torch.save(self.model.state_dict(), "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g).pt" 
+        self.prune = prune
+        self.prune_percent = prune_percent
+        if self.prune: 
+            assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
+            prune_net(net=self.model, q_val=self.prune_percent, device=which_device, verbose=False)
+        self.save_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g_prune_%d)" \
                                         % (self.save_base_path, 
                                            int(self.resnet_params['epoch']), 
                                            int(self.resnet_params['bs']), 
@@ -302,7 +303,13 @@ class Trainer_FineTune():
                                            int(self.resnet_params['embed_dim']), 
                                            self.lr, 
                                            int(self.batch_size * self.acc_steps), 
-                                           self.labelled_perc))
+                                           self.labelled_perc,
+                                           int(self.prune))
+        return
+    
+    def _save_checkpoint(self):
+        print("Saving...")
+        torch.save(self.model.state_dict(), self.save_name + ".pt")
         return
 
     def _run_epoch(self):
@@ -314,6 +321,15 @@ class Trainer_FineTune():
         train_loss = 0
         correct = 0
         total = 0  # if using self.trainloader use_default=0
+        weight_mask = {}
+        for name, layer in self.model.named_modules():  # pruning
+            # do not consider self.downsample
+            if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
+                # Your code here: generate a mask in GPU torch tensor to have 1 for nonzero element and 0 for zero element 
+                layer_weight = layer.weight.detach().cpu().numpy()
+                mask_obj = np.ma.masked_equal(x=layer_weight, value=0)  # where it's zero, mask value is True
+                weight_mask[name] = torch.tensor(1 - np.ma.getmask(mask_obj).astype(int)).to(device)  
+                # zero = 0, nonzero = 1
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
             inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
             self.optimizer.zero_grad()
@@ -330,6 +346,11 @@ class Trainer_FineTune():
             if (batch_idx + 1) % self.acc_steps == 0 or (batch_idx + 1 == len(self.trainloader)):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
+                if self.prune:
+                    for name,layer in self.model.named_modules():
+                        if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
+                            # Your code here: Use weight_mask to make sure zero elements remains zero                    
+                            layer.weight.data = layer.weight.data.clone().detach().requires_grad_(True) * weight_mask[name]
 
             if self.global_steps % self.log_every_n == 0:
                 end = time.time()
@@ -366,10 +387,7 @@ class Trainer_FineTune():
         best_acc = 0
         self.start = time.time()
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
-        file_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_percTrain_%g).txt" \
-                            % (self.save_base_path, int(self.resnet_params['epoch']), 
-                                int(self.resnet_params['bs']),  float(self.resnet_params['lr']),  
-                                int(self.resnet_params['embed_dim']), self.lr, self.labelled_perc)
+        file_name = self.save_name + ".txt"
         if file_name not in os.listdir(self.save_base_path) and self.write:
             f_ptr = open(file_name, 'w')
             f_ptr.close()

@@ -1,5 +1,6 @@
 from resnet_pytorch import ResNet_PyTorch_wrapper
 from train_classes import Trainer_FineTune
+from prune_utils import check_pruned_net
 
 import torch
 import torch.nn as nn
@@ -40,9 +41,12 @@ if __name__ == '__main__':
     parser.add_argument('-s', '--batch_size_finetune', type=int, required=True)  # batch size for fine tune == 4096
     parser.add_argument('-p', '--labelled_perc', type=float, required=True)  # percentage of train data with whith to finetune
     parser.add_argument('-f', '--finetune_ep', type=int, required=True)  # number of epochs to fine tune
+    parser.add_argument('-r', '--prune', type=int, required=True)  # whether to prune, 0 == no prune, 1 == prune
+    parser.add_argument('-c', '--prune_perc', type=float, required=True)  # prune percent, couple -1 with no prune
     args = parser.parse_args()
-
-    device = torch.device('cuda:%d' % int(gpu_dict[args.batch_size_resnet]) if torch.cuda.is_available() else 'cpu')    
+    # usage with prune: python finetune_model.py -e 1000 -b 2048 -l 2.4 -m 128 -s 4096 -p 10 -f 30 -r 1 -c 70
+    # usage without prune: python finetune_model.py -e 1000 -b 2048 -l 2.4 -m 128 -s 4096 -p 10 -f 30 -r 0 -c -1
+    device = torch.device('cuda:%d' % int(gpu_dict[args.batch_size_resnet]) if torch.cuda.is_available() else 'cpu')
     resnet_base_path = "./saved_models/PyTorchResNet_woDatNormalise/"
     finetune_base_path = resnet_base_path + "finetune/"  # where the model/txt files are saved
 
@@ -57,5 +61,6 @@ if __name__ == '__main__':
     finetuner = Trainer_FineTune(model=model_finetune, which_device=device, batch_size=batch_size, lr=0.05*batch_size/256, 
                                  reg=0, resnet_params=resnet_params, device=device,
                                  labelled_perc=args.labelled_perc, log_every_n=max(1, int(256/batch_size * 50)), write=True, 
-                                 save_base_path=finetune_base_path)
+                                 save_base_path=finetune_base_path, prune=bool(args.prune), prune_percent=args.prune_perc)
     finetuner.train(max_epochs=args.finetune_ep)
+    check_pruned_net(net=model_finetune)
