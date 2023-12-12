@@ -11,6 +11,8 @@ from data_utils import *
 
 from rotnet_pytorch import NetworkInNetwork
 
+from rotnet_nonlinclass import NonLinearClassifier
+
 class RotNetTrainer():
     def __init__(self, model: NetworkInNetwork, batch_size, device,
                  lr=.1, reg=5e-4, momentum=.9, log_every_n=5, 
@@ -107,3 +109,9 @@ class RotNetTrainer():
         testloader = torch.utils.data.DataLoader(testset, batch_size=self.batch_size,
                                                  shuffle=False, num_workers=8, pin_memory=True)
         return trainloader, testloader
+
+
+class Trainer_LinEval():
+    def __init__(self, rotnet_model: NetworkInNetwork, 
+                 classifier_model: NonLinearClassifier,
+                 )

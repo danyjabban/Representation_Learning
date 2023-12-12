@@ -60,7 +60,24 @@ class CIFAR10_RotNet(CIFAR10):
         
         return rot_ims, torch.LongTensor([0, 1, 2, 3])
     
-    
+class CIFAR10_train_rotnet(CIFAR10):
+    """
+    CIFAR Dataset ROTNET object for finetuning
+    """
+    def __init__(self, root='data', train=True):
+        super().__init__(root, train, download=True)
+        
+    def __getitem__(self, idx):
+        img, target = self.data[idx], self.targets[idx]
+        
+        transform_train = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(p=0.5)
+            #transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010))
+            ])
+        img = transform_train(img)
+        return img, target
     
 class CIFAR10_train(CIFAR10):
     """
