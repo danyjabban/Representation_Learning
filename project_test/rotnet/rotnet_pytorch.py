@@ -7,7 +7,7 @@ from FP_layers import *
 class BasicBlock(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size):
         super(BasicBlock, self).__init__()
-        padding = (kernel_size-1)/2
+        padding = int((kernel_size-1)/2)
         # make sure to make this work with FP layers later!
         self.feat = nn.Sequential(nn.Conv2d(in_channel, 
                                             out_channel, 
@@ -62,6 +62,7 @@ class NetworkInNetwork(nn.Module):
         self.init_weights()
     
     def forward(self, x):
+        breakpoint()
         x_block1 = self.block1(x)
         x_block2 = self.block2(x_block1)
         x_block3 = self.block3(x_block2)

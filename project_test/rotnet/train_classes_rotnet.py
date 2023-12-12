@@ -29,15 +29,25 @@ class RotNetTrainer():
                                    nesterov=nesterov)
         self.global_steps = 0
         # do train loader test loader here
-        # self.trainloader, self.testloader = 
+        self.trainloader, self.testloader = self.cifar_dataloader_rotnet()
     
     def _run_epoch(self, epoch):
         print(f'\nEpoch: {epoch}')
+        if epoch == 30 or epoch == 60 or epoch == 80:
+            self.lr = self.lr / 5
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.lr
+            print(f'Decreasing learning rate by a factor of 5: {self.lr}')
         self.model.train()
         train_loss = 0
         total = 0
         for batch_idx, (rot_ims, targets) in enumerate(self.trainloader):
-            output = self.model(rot_ims.to(self.device))
+            # breakpoint()
+            rot_ims, targets = rot_ims.to(device), targets.to(device)
+            bs, rots, chan, h, w = rot_ims.shape
+            rot_ims = rot_ims.view([bs*rots, chan, h, w])
+            targets = targets.view([bs*rots])
+            output = self.model(rot_ims)
             loss = self.criterion(output, targets)
             loss.backward()
             self.optimizer.step()
@@ -54,7 +64,11 @@ class RotNetTrainer():
         total = 0
         with torch.no_grad():
             for batch_idx, (rot_ims, targets) in enumerate(self.testloader):
-                output = self.model(rot_ims.to(self.device))
+                rot_ims, targets = rot_ims.to(device), targets.to(device)
+                bs, rots, chan, h, w = rot_ims.shape
+                rot_ims = rot_ims.view([bs*rots, chan, h, w])
+                targets = targets.view([bs*rots])
+                output = self.model(rot_ims)
                 loss = self.criterion(output, targets)
                 test_loss += loss.item()
                 total += targets.size(0)
@@ -83,3 +97,13 @@ class RotNetTrainer():
                 f_ptr.close()
             if (epoch+1) % 10 == 0:
                 self._save_checkpoint(epoch+1, save_base_path)
+    
+    def cifar_dataloader_rotnet(self):
+        trainset = CIFAR10_RotNet(root='./data', train=True)
+        testset = CIFAR10_RotNet(root='./data', train=False)
+        
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.batch_size,
+                                                  shuffle=True, num_workers=16, pin_memory=True)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=self.batch_size,
+                                                 shuffle=False, num_workers=8, pin_memory=True)
+        return trainloader, testloader

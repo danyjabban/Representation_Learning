@@ -6,6 +6,8 @@ import torchvision.transforms as transforms
 import torchvision
 import torch.nn as nn
 import torch.optim as optim
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from FP_layers import *
 from rotnet_pytorch import NetworkInNetwork
@@ -21,7 +23,9 @@ if __name__ == '__main__':
     
     # parser.add_argument('-b', '--batchsize', type=int, required=True)
     # parser.add()
-    device = torch.device('cuda')
+    # device = torch.device('cuda')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     save_base_path = './save_models/RotNet_logs'
     os.makedirs(save_base_path, exist_ok=True)
     model = NetworkInNetwork(4).to(device)
