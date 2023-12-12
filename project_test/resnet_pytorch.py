@@ -310,3 +310,25 @@ class ResNet_PyTorch_wrapper_wide2(nn.Module):
             return self.features
         self.g_out = F.normalize(self.g(self.features), dim=-1)
         return self.g_out
+    
+
+class ResNet_PyTorch_vanilla_wrapper(nn.Module):
+    def __init__(self, Nbits=None, symmetric=False):
+        super(ResNet_PyTorch_vanilla_wrapper, self).__init__()
+
+        self.f = []
+        for name, module in resnet50(Nbits=Nbits, symmetric=symmetric).named_children():
+            if name == 'conv1':
+                module = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+            if not isinstance(module, nn.Linear) and not isinstance(module, nn.MaxPool2d):
+                self.f.append(module)
+        # encoder
+        self.f = nn.Sequential(*self.f)
+        # fc head
+        self.fc = nn.Linear(2048, 10, bias=True)
+        
+        
+    def forward(self, x):
+        x = self.f(x)
+        self.features = torch.flatten(x, start_dim=1)
+        return self.fc(self.features)

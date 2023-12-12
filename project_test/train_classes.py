@@ -414,3 +414,163 @@ class Trainer_FineTune():
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
         return trainloader, testloader
+    
+
+
+class Trainer_Vanilla():
+    def __init__(self, model, device, train_bs, val_bs, lr, reg,
+                save_base_path: str, data_path: str, log_every_n=50, write=True, 
+                 prune: bool = False, prune_percent: float = -1):
+        super().__init__()
+        self.model = model
+        self.device = device
+        
+        self.train_bs = train_bs
+        self.val_bs = val_bs
+        self.data_path = data_path
+        self.lr = lr
+        self.reg = reg
+        self.log_every_n = log_every_n
+        
+        # self.resnet_params = resnet_params
+
+        self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
+        self.global_steps = 0
+
+        self.write = write
+        # self.fname_train = 'tune_idx_p=%d.txt' % self.labelled_perc
+        self.fname_train = f'vanilla_resnet_{self.train_bs}.txt'
+        self.save_base_path = save_base_path
+        # write_indices(p=self.labelled_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
+        
+        self.trainloader, self.testloader = Trainer_Vanilla.cifar_dataloader(fname_train=self.fname_train, 
+                                                                            data_path=self.data_path, 
+                                                                            train_bs=self.train_bs,
+                                                                            val_bs=self.val_bs)
+        
+        self.prune = prune
+        self.prune_percent = prune_percent
+        if self.prune: 
+            assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
+            prune_net(net=self.model, q_val=self.prune_percent, device=device, verbose=False)
+        self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d_prune_%d)" \
+                                        % (self.save_base_path, 
+                                           self.lr, 
+                                           self.train_bs, 
+                                           int(self.prune))
+        return
+    
+    def _save_checkpoint(self):
+        print("Saving...")
+        torch.save(self.model.state_dict(), self.save_name + ".pt")
+        return
+
+    def _run_epoch(self):
+        """
+        Start the training code.
+        """
+        self.model.train()
+        
+        train_loss = 0
+        correct = 0
+        total = 0  # if using self.trainloader use_default=0
+        weight_mask = {}
+        
+#         for name, layer in self.model.named_modules():  # pruning
+#             # do not consider self.downsample
+#             if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
+#                 # Your code here: generate a mask in GPU torch tensor to have 1 for nonzero element and 0 for zero element 
+#                 layer_weight = layer.weight.detach().cpu().numpy()
+#                 mask_obj = np.ma.masked_equal(x=layer_weight, value=0)  # where it's zero, mask value is True
+#                 weight_mask[name] = torch.tensor(1 - np.ma.getmask(mask_obj).astype(int)).to(device)  
+#                 # zero = 0, nonzero = 1
+                
+        for batch_idx, (inputs, targets) in enumerate(self.trainloader):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            # inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
+            self.optimizer.zero_grad()
+            outputs = self.model(inputs)
+            loss = self.criterion(outputs, targets)
+            loss.backward()
+
+            self.optimizer.step()
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+            self.global_steps += 1
+            # if (batch_idx + 1) % self.acc_steps == 0 or (batch_idx + 1 == len(self.trainloader)):
+            # self.optimizer.step()
+            # self.optimizer.zero_grad()
+            if self.prune:
+                for name,layer in self.model.named_modules():
+                    if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
+                        # Your code here: Use weight_mask to make sure zero elements remains zero                    
+                        layer.weight.data = layer.weight.data.clone().detach().requires_grad_(True) * weight_mask[name]
+
+            if self.global_steps % self.log_every_n == 0:
+                end = time.time()
+                num_examples_per_second = self.log_every_n * self.train_bs / (end - self.start)
+                print("[Step=%d]\tLoss=%.4f\tacc=%.4f\t%.1f examples/second"
+                      % (self.global_steps, train_loss / (batch_idx + 1), (correct / total), num_examples_per_second))
+                self.start = time.time()
+
+        self.scheduler.step()
+
+        """
+        Start the testing code.
+        """
+        self.model.eval()
+        test_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(self.testloader):
+                # inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
+                inputs, targets = inputs.to(self.device), targets.to(self.which_device)
+
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, targets)
+
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+        num_val_steps = len(self.testloader)
+        val_acc = correct / total
+        print("Test Loss=%.4f, Test acc=%.4f" % (test_loss / (num_val_steps), val_acc))
+        return test_loss / (num_val_steps), val_acc
+
+    def train(self, max_epochs: int):
+        best_acc = 0
+        self.start = time.time()
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
+        file_name = self.save_name + ".txt"
+        if file_name not in os.listdir(self.save_base_path) and self.write:
+            f_ptr = open(file_name, 'w')
+            f_ptr.close()
+        self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
+        # in _run_epoch
+        for epoch in tqdm(range(max_epochs), desc='ResNet_vanilla_train_bs_%d' % self.train_bs):
+            val_loss, val_acc = self._run_epoch()  # whether optimizer step happens is determined by batch_idx, not epoch
+            if self.write:
+                f_ptr = open(file_name, 'a')
+                f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
+                f_ptr.close()
+            if best_acc < val_acc:  # note: since counting from 0 -> when saving add 1.
+                best_acc = val_acc
+                self._save_checkpoint()
+    
+    #@staticmethod
+    def cifar_dataloader(fname_train: float, data_path, train_bs=128, val_bs=100):
+        """
+        @param bs: batch size
+        @param labelled_perc: percentage of labelled data
+        """
+        trainset = CIFAR10_train(root = data_path)
+        testset = CIFAR10_test(root = data_path)
+
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_bs, shuffle=True, num_workers=16, pin_memory=True)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=val_bs, shuffle=False, num_workers=8, pin_memory=True)
+        return trainloader, testloader
