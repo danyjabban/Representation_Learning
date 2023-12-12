@@ -247,6 +247,17 @@ def resnet50(**kwargs):
     """
     return _resnet(block=Bottleneck, layers=[3, 4, 6, 3], **kwargs)
 
+def resnet50_wide2(**kwargs):
+    r"""ResNet-50 model from
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _resnet(block=Bottleneck, layers=[3, 4, 6, 3], width_per_group=64*2,  **kwargs)
+
+
 
 class ResNet_PyTorch_wrapper(nn.Module):
     def __init__(self, embed_dim=128, Nbits=None, symmetric=False, lin_eval_flag=False):
@@ -254,6 +265,32 @@ class ResNet_PyTorch_wrapper(nn.Module):
 
         self.f = []
         for name, module in resnet50(Nbits=Nbits, symmetric=symmetric).named_children():
+            if name == 'conv1':
+                module = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+            if not isinstance(module, nn.Linear) and not isinstance(module, nn.MaxPool2d):
+                self.f.append(module)
+        self.lin_eval_flag = lin_eval_flag
+        # encoder
+        self.f = nn.Sequential(*self.f)
+        # projection head
+        self.embed_dim = embed_dim
+        self.g = nn.Sequential(nn.Linear(2048, 512, bias=False), nn.BatchNorm1d(512),
+                               nn.ReLU(inplace=True), nn.Linear(512, embed_dim, bias=True))
+
+    def forward(self, x):
+        x = self.f(x)
+        self.features = torch.flatten(x, start_dim=1)
+        if self.lin_eval_flag:
+            return self.features
+        self.g_out = F.normalize(self.g(self.features), dim=-1)
+        return self.g_out
+
+class ResNet_PyTorch_wrapper_wide2(nn.Module):
+    def __init__(self, embed_dim=128, Nbits=None, symmetric=False, lin_eval_flag=False):
+        super(ResNet_PyTorch_wrapper_wide2, self).__init__()
+
+        self.f = []
+        for name, module in resnet50_wide2(Nbits=Nbits, symmetric=symmetric).named_children():
             if name == 'conv1':
                 module = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
             if not isinstance(module, nn.Linear) and not isinstance(module, nn.MaxPool2d):
