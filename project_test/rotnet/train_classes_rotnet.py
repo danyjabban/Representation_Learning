@@ -35,7 +35,7 @@ class RotNetTrainer():
     
     def _run_epoch(self, epoch):
         print(f'\nEpoch: {epoch}')
-        if epoch == 30 or epoch == 60 or epoch == 80:
+        if epoch == 60 or epoch == 120 or epoch == 160:
             self.lr = self.lr / 5
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = self.lr
@@ -111,7 +111,113 @@ class RotNetTrainer():
         return trainloader, testloader
 
 
-class Trainer_LinEval():
+class RotNetLinEvalTrainer():
     def __init__(self, rotnet_model: NetworkInNetwork, 
                  classifier_model: NonLinearClassifier,
-                 )
+                 rotnet_params, batch_size, device,
+                 lin_eval_type, lr=.1, 
+                 reg=5e-4, momentum=.9, log_every_n=5,
+                 nesterov=True):
+        super().__init__()
+        self.rotnet_model = rotnet_model
+        self.classifier_model = classifier_model
+        self.rotnet_params = rotnet_params
+        self.batch_size = batch_size
+        self.device = device
+        self.lr = lr
+        self.lin_eval_type = lin_eval_type
+        self.reg = reg
+        self.momentum = momentum
+        self.log_every_n = log_every_n
+        self.nesterov = nesterov
+        
+        self.criterion = nn.CrossEntropyLoss().to(self.device)
+        self.optimizer = optim.SGD(params=self.classifier_model.parameters(),
+                                   lr=self.lr, momentum=self.momentum,
+                                   weight_decay=self.reg, nesterov=self.nesterov)
+        self.global_steps = 0
+        
+        self.trainloader, self.testloader = self.cifar_dataloader_lineval_rotnet()
+    
+    def _save_checkpoint(self, save_base_path: str):
+        print('Saving...')
+        location = f"{save_base_path}/Rotnet(epoch_{int(self.rotnet_params['epoch'])}_bs_{int(self.rotnet_params['bs'])}_lr_{float(self.rotnet_params['lr'])})_LinEval(type_{self.lin_eval_type}_lr_{self.lr}_reg_{self.reg}).pt"
+        torch.save(self.classifier_model.state_dict(), location)
+    
+    def _run_epoch(self, epoch):
+        # breakpoint()
+        if epoch == 35 or epoch == 70 or epoch == 85 or epoch == 100 or epoch == 130 or epoch == 160 or epoch == 185:
+            self.lr = self.lr / 5
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.lr
+            print(f'Decreasing learning rate by a factor of 5: {self.lr}')
+
+        print(f'\nEpoch: {epoch}')
+        self.rotnet_model.eval()
+        self.classifier_model.train()
+        
+        train_loss = 0
+        correct = 0
+        total = 0
+        for batch_idx, (inputs, targets) in enumerate(self.trainloader):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            with torch.no_grad():
+                rotnet_features = self.rotnet_model(inputs)
+            # breakpoint()
+            outputs = self.classifier_model(rotnet_features.clone().detach())
+            loss = self.criterion(outputs, targets)
+            loss.backward()
+            
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+            train_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+            self.global_steps += 1
+            
+            if self.global_steps % self.log_every_n == 0:
+                print(f"[Step={self.global_steps}]\tLoss={(train_loss/(batch_idx+1)):.4f}\tAcc={(correct/total):.4f}")
+            
+        self.classifier_model.eval()
+        test_loss = 0
+        correct = 0
+        total = 0
+        with torch.no_grad():
+            for batch_idx, (inputs, targets) in enumerate(self.testloader):
+                inputs, targets = inputs.to(self.device), targets.to(self.device)
+                rotnet_features = self.rotnet_model(inputs)
+                outputs = self.classifier_model(rotnet_features)
+                loss = self.criterion(outputs, targets)
+                
+                test_loss += loss.item()
+                _, predicted = outputs.max(1)
+                total += targets.size(0)
+                correct += predicted.eq(targets).sum().item()
+        num_val_steps = len(self.testloader)
+        val_acc = correct / total
+        print(f'Test Loss = {(test_loss/num_val_steps):.4f}, Test Acc = {val_acc:.4f}')
+        return (test_loss / (num_val_steps)), val_acc        
+        
+    
+    def train(self, max_epochs: int, save_base_path: str):
+        best_acc = 0
+        self.optimizer.zero_grad()
+        for epoch in tqdm(range(max_epochs), desc='RotNet_lin_eval'):
+            val_loss, val_acc = self._run_epoch(epoch)
+            if best_acc < val_acc:
+                best_acc = val_acc
+                self._save_checkpoint(save_base_path)
+        print(f'Best Test Accuracy: {best_acc}')
+            
+    def cifar_dataloader_lineval_rotnet(self):
+        trainset = CIFAR10_train_rotnet(root='./data', train=True)
+        testset = CIFAR10_test(root='./data', train=False)
+        
+        trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.batch_size,
+                                                  shuffle=True, num_workers=16, pin_memory=True)
+        testloader = torch.utils.data.DataLoader(testset, batch_size=self.batch_size,
+                                                 shuffle=False, num_workers=8, pin_memory=True)
+        return trainloader, testloader
+    
+    

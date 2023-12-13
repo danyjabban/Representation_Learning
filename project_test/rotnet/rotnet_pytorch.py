@@ -36,7 +36,7 @@ class NetworkInNetwork(nn.Module):
         nChannels = 192
         nChannels2 = 160
         nChannels3 = 96
-        
+        self.lin_eval_flag = lin_eval_flag
         self.block1 = nn.Sequential(BasicBlock(3, nChannels, 5),
                                     BasicBlock(nChannels, nChannels2, 1),
                                     BasicBlock(nChannels2, nChannels3, 1),
@@ -62,11 +62,19 @@ class NetworkInNetwork(nn.Module):
         self.init_weights()
     
     def forward(self, x):
-        breakpoint()
+        # breakpoint()
         x_block1 = self.block1(x)
+        if self.lin_eval_flag == '1':
+            return x_block1
         x_block2 = self.block2(x_block1)
+        if self.lin_eval_flag == '2':
+            return x_block2
         x_block3 = self.block3(x_block2)
+        if self.lin_eval_flag == '3':
+            return x_block3
         x_block4 = self.block4(x_block3)
+        if self.lin_eval_flag == '4':
+            return x_block4
         x_globpool = self.globpool(x_block4)
         x_linear = self.linear(x_globpool)
         return x_linear

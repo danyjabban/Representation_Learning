@@ -31,6 +31,6 @@ if __name__ == '__main__':
     model = NetworkInNetwork(4).to(device)
     trainer = RotNetTrainer(model=model, batch_size=128, 
                             device=device, lr=.1, reg=5e-4,
-                            momentum=.9, log_every_n=5, nesterov=True,
+                            momentum=.9, log_every_n=50, nesterov=True,
                             write=True)
-    trainer.train(max_epochs=100, save_base_path=save_base_path)
+    trainer.train(max_epochs=200, save_base_path=save_base_path)

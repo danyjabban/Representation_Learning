@@ -41,10 +41,10 @@ class NonLinearClassifier(nn.Module):
             nFeatures = min(num_classes*20, 2048)
             self.classifier = nn.Sequential(Flatten(),
                                             nn.Linear(nChannels, nFeatures, bias=False),
-                                            nn.BatchNorm2d(nFeatures),
+                                            nn.BatchNorm1d(nFeatures),
                                             nn.ReLU(inplace=True),
                                             nn.Linear(nFeatures, nFeatures, bias=False),
-                                            nn.BatchNorm2d(nFeatures),
+                                            nn.BatchNorm1d(nFeatures),
                                             nn.ReLU(inplace=True),
                                             nn.Linear(nFeatures, num_classes))
         elif type_class == 'NIN_conv':
@@ -57,6 +57,8 @@ class NonLinearClassifier(nn.Module):
         self.init_weights()
     
     def forward(self, feat):
+        # breakpoint()
+
         return self.classifier(feat)
     
     def init_weights(self):
