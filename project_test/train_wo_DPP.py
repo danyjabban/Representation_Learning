@@ -33,21 +33,26 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--train_for_finetune', type=int, required=True, help="=0 means normal trianing, "
                                         "=1 means train for enventual fine-tuning")
     parser.add_argument('-e', '--embed_dim', type=int, required=True, help="dimension of embeddings output by ResNet")
+    parser.add_argument('-w', '--wide_resnet', type=int, required=True, help="=1 means wide, =0 means default resnet")
+    parser.add_argument('-s', '--save_base_path', type=str, required=True, help="base path to save resnet, "
+                        "e.g. ./saved_models/PyTorchResNet_woDatNormalise/")
     args = parser.parse_args()
-
+    # default usage python -d 0 -b 4096 -f 0 -e 128 -w 0 -s ./saved_models/PyTorchResNet_woDatNormalise/
     valid_bs = {256, 512, 1024, 2048, 4096}
     valid_embed_dim = {64, 48, 32, 24, 12}
     assert args.batchsize in valid_bs
 
     device = torch.device('cuda:%d' % int(args.device) if torch.cuda.is_available() else 'cpu')
     # device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
-    save_base_path = "./saved_models/PyTorchResNet_woDatNormalise/"
+    save_base_path = args.save_base_path
     os.makedirs(save_base_path, exist_ok=True)
 
     batch_size = int(args.batchsize)
 
     # model = ResNetCIFAR(embed_dim=args.embed_dim).to(device) # lr=0.3*batch_size/256
     model = ResNet_PyTorch_wrapper(embed_dim=args.embed_dim).to(device) # lr=0.3*batch_size/256
+    if args.wide_resnet == 1:
+        model = ResNet_PyTorch_wrapper_wide2(embed_dim=args.embed_dim).to(device)
     trainer = Trainer_wo_DDP(model=model, batch_size=batch_size, lr=0.3*batch_size/256, reg=1e-6, which_device=device,
                              train_for_finetune=args.train_for_finetune, log_every_n=int(256/batch_size * 50))
     trainer.train(max_epochs=1000, save_base_path=save_base_path)
