@@ -146,7 +146,6 @@ class RotNetLinEvalTrainer():
                 list(self.rotnet_model.parameters()),
                 lr=self.lr, momentum=self.momentum,
                 weight_decay=self.reg, nesterov=self.nesterov)
-        breakpoint()
         self.global_steps = 0
         
         self.trainloader, self.testloader = self.cifar_dataloader_lineval_rotnet()
@@ -246,6 +245,27 @@ class RotNetLinEvalTrainer():
         #
         trainset = CIFAR10_train_rotnet_lin_eval(root='./data', train=True)
         testset = CIFAR10_train_rotnet_lin_eval(root='./data', train=False)
+        
+        if self.k_img_per_cat != 5000:
+            label_idx_map = {}
+            labels = trainset.targets
+            for idx, label in enumerate(labels):
+                if label not in label_idx_map:
+                    label_idx_map[label] = []
+                label_idx_map[label].append(idx)
+            all_idx = []
+            for cat in label_idx_map.keys():
+                label_idx_map[cat] = label_idx_map[cat][:self.k_img_per_cat]
+                all_idx += label_idx_map[cat]
+            all_idx = sorted(all_idx)
+            # can also use this
+            # x = Subset(trainset, all_idx)
+            trainset.data = trainset.data[all_idx]
+            new_labels = []
+            for idx in all_idx:
+                new_labels.append(labels[idx])
+            trainset.targets = new_labels
+            
         
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=self.batch_size,
                                                   shuffle=True, num_workers=16, pin_memory=True)
