@@ -330,5 +330,5 @@ class ResNet_PyTorch_vanilla_wrapper(nn.Module):
         
     def forward(self, x):
         x = self.f(x)
-        self.features = torch.flatten(x, start_dim=1)
+        self.features = torch.flatten(x, start_dim=1) # do we need this flatten
         return self.fc(self.features)

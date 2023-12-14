@@ -5,7 +5,7 @@ import torch
 
 if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    save_base_path = "./saved_models/"
+    save_base_path = "./saved_models/vanilla_resnet/"
     # os.makedirs(save_base_path, exist_ok=True)
     
     train_bs = 128

@@ -562,7 +562,7 @@ class Trainer_Vanilla():
                 best_acc = val_acc
                 self._save_checkpoint()
     
-    #@staticmethod
+    @staticmethod
     def cifar_dataloader(fname_train: float, data_path, train_bs=128, val_bs=100):
         """
         @param bs: batch size
