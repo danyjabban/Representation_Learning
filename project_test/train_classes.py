@@ -31,7 +31,7 @@ class Trainer_wo_DDP():
         super().__init__()
         # https://discuss.pytorch.org/t/extra-10gb-memory-on-gpu-0-in-ddp-tutorial/118113
         self.model = model
-        self.device = which_device
+        self.which_device = which_device
         self.acc_steps = max(1, int(batch_size / 512))
         # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
         # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
@@ -68,10 +68,10 @@ class Trainer_wo_DDP():
         train_loss = 0
         total = 0
         for batch_idx, (augment_inputs1, augment_inputs2, targets) in enumerate(self.trainloader):
-            # augment_inputs1 = Trainer_wo_DDP.aug_dat(inputs).to(self.device)
-            # augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.device)
+            # augment_inputs1 = Trainer_wo_DDP.aug_dat(inputs).to(self.which_device)
+            # augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.which_device)
             
-            outputs1, outputs2 = self.model(augment_inputs1.to(self.device)), self.model(augment_inputs2.to(self.device))
+            outputs1, outputs2 = self.model(augment_inputs1.to(self.which_device)), self.model(augment_inputs2.to(self.which_device))
             loss = self.criterion(outputs1, outputs2)
             loss.backward()
             if (batch_idx+1) % self.acc_steps == 0 or (batch_idx+1 == len(self.trainloader)):
@@ -96,8 +96,8 @@ class Trainer_wo_DDP():
         total = 0
         with torch.no_grad():
             for batch_idx, (augment_inputs1, augment_inputs2, targets) in enumerate(self.testloader):
-                # augment_inputs1, augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.device), Trainer_wo_DDP.aug_dat(inputs).to(self.device)
-                outputs1, outputs2 = self.model(augment_inputs1.to(self.device)), self.model(augment_inputs2.to(self.device))
+                # augment_inputs1, augment_inputs2 = Trainer_wo_DDP.aug_dat(inputs).to(self.which_device), Trainer_wo_DDP.aug_dat(inputs).to(self.which_device)
+                outputs1, outputs2 = self.model(augment_inputs1.to(self.which_device)), self.model(augment_inputs2.to(self.which_device))
                 loss = self.criterion(outputs1, outputs2)
 
                 test_loss += loss.item()
@@ -267,7 +267,7 @@ class Trainer_FineTune():
         self.Nbits = Nbits
         self.which_device = device
         self.model = model
-        self.device = which_device
+        self.which_device = which_device
         self.acc_steps = max(1, int(batch_size / 512))
         # https://medium.com/huggingface/training-larger-batches-practical-tips-on-1-gpu-multi-gpu-distributed-setups-ec88c3e51255
         # https://www.blog.dailydoseofds.com/p/gradient-accumulation-increase-batch#:~:text=This%20technique%20works%20because%20accumulating,explicitly%20increase%20the%20batch%20size.
@@ -296,7 +296,7 @@ class Trainer_FineTune():
         if self.prune: 
             assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
             prune_net(net=self.model, q_val=self.prune_percent, device=which_device, verbose=False)
-        self.save_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g_prune_%d_nb_%s)" \
+        self.save_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g_prune_%g_nb_%s)" \
                                         % (self.save_base_path, 
                                            int(self.resnet_params['epoch']), 
                                            int(self.resnet_params['bs']), 
@@ -305,7 +305,7 @@ class Trainer_FineTune():
                                            self.lr, 
                                            int(self.batch_size * self.acc_steps), 
                                            self.labelled_perc,
-                                           int(self.prune), 
+                                           int(self.prune_percent), 
                                            str(self.Nbits))
         return
     
@@ -421,11 +421,10 @@ class Trainer_FineTune():
 
 class Trainer_Vanilla():
     def __init__(self, model, device, train_bs, val_bs, lr, reg,
-                save_base_path: str, data_path: str, log_every_n=50, write=True, 
-                 prune: bool = False, prune_percent: float = -1):
+                save_base_path: str, data_path: str, log_every_n=50, write=True):
         super().__init__()
         self.model = model
-        self.device = device
+        self.which_device = device
         
         self.train_bs = train_bs
         self.val_bs = val_bs
@@ -450,12 +449,6 @@ class Trainer_Vanilla():
                                                                             data_path=self.data_path, 
                                                                             train_bs=self.train_bs,
                                                                             val_bs=self.val_bs)
-        
-        self.prune = prune
-        self.prune_percent = prune_percent
-        if self.prune: 
-            assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
-            prune_net(net=self.model, q_val=self.prune_percent, device=device, verbose=False)
         self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d_prune_%d)" \
                                         % (self.save_base_path, 
                                            self.lr, 
@@ -477,20 +470,9 @@ class Trainer_Vanilla():
         train_loss = 0
         correct = 0
         total = 0  # if using self.trainloader use_default=0
-        weight_mask = {}
-        
-#         for name, layer in self.model.named_modules():  # pruning
-#             # do not consider self.downsample
-#             if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
-#                 # Your code here: generate a mask in GPU torch tensor to have 1 for nonzero element and 0 for zero element 
-#                 layer_weight = layer.weight.detach().cpu().numpy()
-#                 mask_obj = np.ma.masked_equal(x=layer_weight, value=0)  # where it's zero, mask value is True
-#                 weight_mask[name] = torch.tensor(1 - np.ma.getmask(mask_obj).astype(int)).to(device)  
-#                 # zero = 0, nonzero = 1
                 
         for batch_idx, (inputs, targets) in enumerate(self.trainloader):
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-            # inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
+            inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
             self.optimizer.zero_grad()
             outputs = self.model(inputs)
             loss = self.criterion(outputs, targets)
@@ -502,14 +484,6 @@ class Trainer_Vanilla():
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
             self.global_steps += 1
-            # if (batch_idx + 1) % self.acc_steps == 0 or (batch_idx + 1 == len(self.trainloader)):
-            # self.optimizer.step()
-            # self.optimizer.zero_grad()
-            if self.prune:
-                for name,layer in self.model.named_modules():
-                    if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
-                        # Your code here: Use weight_mask to make sure zero elements remains zero                    
-                        layer.weight.data = layer.weight.data.clone().detach().requires_grad_(True) * weight_mask[name]
 
             if self.global_steps % self.log_every_n == 0:
                 end = time.time()
@@ -529,8 +503,7 @@ class Trainer_Vanilla():
         total = 0
         with torch.no_grad():
             for batch_idx, (inputs, targets) in enumerate(self.testloader):
-                # inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
-                inputs, targets = inputs.to(self.device), targets.to(self.which_device)
+                inputs, targets = inputs.to(self.which_device), targets.to(self.which_device)
 
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, targets)
@@ -547,7 +520,8 @@ class Trainer_Vanilla():
     def train(self, max_epochs: int):
         best_acc = 0
         self.start = time.time()
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
+        self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[int(max_epochs*0.5), int(max_epochs*0.75)], 
+                                                        gamma=0.1)
         file_name = self.save_name + ".txt"
         if file_name not in os.listdir(self.save_base_path) and self.write:
             f_ptr = open(file_name, 'w')
