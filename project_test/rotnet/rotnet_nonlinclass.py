@@ -7,7 +7,7 @@ import numpy as np
 class BasicBlock(nn.Module):
     def __init__(self, in_channel, out_channel, kernel_size):
         super(BasicBlock, self).__init__()
-        padding = (kernel_size-1)/2
+        padding = int((kernel_size-1)/2)
         # make sure to make this work with FP layers later!
         self.feat = nn.Sequential(nn.Conv2d(in_channel, 
                                             out_channel, 
@@ -17,7 +17,9 @@ class BasicBlock(nn.Module):
                                             bias=False),
                                     nn.BatchNorm2d(out_channel),
                                     nn.ReLU(inplace=True))
-
+    def forward(self, x):
+        out = self.feat(x)
+        return out
 class GlobalAveragePooling(nn.Module):
     def __init__(self):
         super(GlobalAveragePooling, self).__init__()
