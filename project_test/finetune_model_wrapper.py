@@ -62,7 +62,7 @@ if __name__ == '__main__':
                         "--lr_resnet", str(2.4),
                         "--embed_dim", str(128),
                         "--wide", str(args.wide),
-                        "--batch_size_finetune", str(4096),
+                        "--batch_size_finetune", str(256),
                         "--labelled_perc", str(labelled_p),
                         "--finetune_ep", str(labelled_p_to_epoch_dict[labelled_p]),
                         "--prune_perc", str(prune_p),

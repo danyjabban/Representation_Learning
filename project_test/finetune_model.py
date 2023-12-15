@@ -54,7 +54,7 @@ if __name__ == '__main__':
     parser.add_argument('-w', '--wide', type=int, required=True) # =1 is wide, =0 is non-wide
 
     parser.add_argument('-s', '--batch_size_finetune', type=int, required=True)  # batch size for fine tune == 4096
-    parser.add_argument('-p', '--labelled_perc', type=float, required=True)  # percentage of train data with whith to finetune
+    parser.add_argument('-p', '--labelled_perc', type=float, required=False)  # percentage of train data with whith to finetune
     parser.add_argument('-f', '--finetune_ep', type=int, required=True)  # number of epochs to fine tune
     # parser.add_argument('-r', '--prune', type=int, required=True)  # whether to prune, 0 == no prune, 1 == prune
     parser.add_argument('-c', '--prune_perc', type=float, required=True)  # prune percent, couple -1 with no prune
@@ -85,12 +85,13 @@ if __name__ == '__main__':
     batch_size = int(args.batch_size_finetune)
     resnet_params = {'epoch': args.epoch_resnet, 'bs': args.batch_size_resnet, 'lr': args.lr_resnet, 
                      'embed_dim': args.embed_dim}
+    assert args.labelled_perc != 100, 'if args.labelled_perc == 100, simply do not pass anything to -c. ' \
+                                      'Note line 57 arg is optional'
     if args.prune_perc == -1:
         prune = False
     else:
         assert args.prune_perc > 0 and args.prune_perc < 100
         prune = True
-    # TODO: Remove device argument in Trainer_FineTune
     finetuner = Trainer_FineTune(model=model_finetune, which_device=device, batch_size=batch_size, lr=0.05*batch_size/256, 
                                  reg=0, resnet_params=resnet_params,
                                  labelled_perc=args.labelled_perc, log_every_n=max(1, int(256/batch_size * 50)), write=True, 

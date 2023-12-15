@@ -284,18 +284,26 @@ class Trainer_FineTune():
 
         self.write = write
         self.labelled_perc = labelled_perc  # percentage, i.e. 100% = 1
-        self.fname_train = 'tune_idx_p=%d.txt' % self.labelled_perc
+        self.fname_train = None
+        if self.labelled_perc is not None:
+            self.fname_train = 'tune_idx_p=%d.txt' % self.labelled_perc
         self.save_base_path = save_base_path
-        write_indices(p=self.labelled_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
+        if self.labelled_perc is not None:
+            write_indices(p=self.labelled_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
         self.trainloader, self.testloader = Trainer_FineTune.cifar_dataloader_tune(bs=self.batch_size, 
                                                                                    fname_train=self.fname_train, 
-                                                                                   save_base_path=self.save_base_path)
+                                                                                   save_base_path=self.save_base_path, 
+                                                                                   train_perc=self.labelled_perc)
         self.prune = prune
         self.prune_percent = prune_percent
         if self.prune: 
             assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
             # prune_net(net=self.model, q_val=self.prune_percent, device=which_device, verbose=False)
             # use global iterative prune, so pruning isn't applied here
+        if self.labelled_perc is None:
+            labelled_perc = 100
+        else:
+            labelled_perc = self.labelled_perc
         self.save_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g_prune_%g_nb_%s)" \
                                         % (self.save_base_path, 
                                            int(self.resnet_params['epoch']), 
@@ -304,7 +312,7 @@ class Trainer_FineTune():
                                            int(self.resnet_params['embed_dim']), 
                                            self.lr, 
                                            int(self.batch_size * self.acc_steps), 
-                                           self.labelled_perc,
+                                           labelled_perc,
                                            int(self.prune_percent), 
                                            str(self.Nbits))
         return
@@ -397,14 +405,17 @@ class Trainer_FineTune():
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
         for epoch in tqdm(range(max_epochs), desc='ResNet_Tune_bs_%d' % (self.batch_size * self.acc_steps)):
-            q = (epoch + 1) *  (self.prune_percent / (self.max_epochs / 2))
-            if epoch < int(self.max_epochs / 2):
-                print(q)
-                global_prune_by_percentage(self.model, q=q, device=self.which_device)
-            if epoch < int(self.max_epochs / 2) - 1:
-                val_loss, val_acc = self._run_epoch(train_prune=False)
+            if self.prune:
+                q = (epoch + 1) *  (self.prune_percent / (self.max_epochs / 2))
+                if epoch < int(self.max_epochs / 2):
+                    print(q)
+                    global_prune_by_percentage(self.model, q=q, device=self.which_device)
+                if epoch < int(self.max_epochs / 2) - 1:
+                    val_loss, val_acc = self._run_epoch(train_prune=False)
+                else:
+                    val_loss, val_acc = self._run_epoch(train_prune=True)
             else:
-                val_loss, val_acc = self._run_epoch(train_prune=True)
+                val_loss, val_acc = self._run_epoch(train_prune=False)
             if self.write:
                 f_ptr = open(file_name, 'a')
                 f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
@@ -417,12 +428,16 @@ class Trainer_FineTune():
         return
     
     @staticmethod
-    def cifar_dataloader_tune(bs: int, fname_train: float, save_base_path):
+    def cifar_dataloader_tune(bs: int, fname_train: float, save_base_path, train_perc: float):
         """
         @param bs: batch size
         @param labelled_perc: percentage of labelled data
         """
-        trainset, testset = get_train_test_sets(fname_train, base_path=save_base_path)
+        if train_perc is not None:
+            trainset, testset = get_train_test_sets(fname_train, base_path=save_base_path)
+        else:
+            trainset = CIFAR10_train()
+            testset = CIFAR10_test()
 
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=bs, shuffle=True, num_workers=16, pin_memory=True)
         testloader = torch.utils.data.DataLoader(testset, batch_size=bs, shuffle=False, num_workers=8, pin_memory=True)
@@ -432,7 +447,8 @@ class Trainer_FineTune():
 
 class Trainer_Vanilla():
     def __init__(self, model, device, train_bs, val_bs, lr, reg,
-                save_base_path: str, data_path: str, log_every_n=50, write=True):
+                save_base_path: str, data_path: str, log_every_n=50, write=True, 
+                train_perc=None):
         super().__init__()
         self.model = model
         self.which_device = device
@@ -445,25 +461,35 @@ class Trainer_Vanilla():
         self.log_every_n = log_every_n
         
         # self.resnet_params = resnet_params
-
+        self.train_perc = train_perc
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9, weight_decay=self.reg, nesterov=True)
         self.global_steps = 0
 
         self.write = write
-        # self.fname_train = 'tune_idx_p=%d.txt' % self.labelled_perc
-        self.fname_train = f'vanilla_resnet_{self.train_bs}.txt'
+        self.fname_train = None
+        if self.train_perc is not None:
+            self.fname_train = 'tune_idx_p=%d.txt' % self.train_perc
+        # self.fname_train = f'vanilla_resnet_{self.train_bs}.txt'
         self.save_base_path = save_base_path
-        # write_indices(p=self.labelled_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
+        if self.train_perc is not None:
+            write_indices(p=self.train_perc / 100, fname_train=self.fname_train, base_path=self.save_base_path)
         
         self.trainloader, self.testloader = Trainer_Vanilla.cifar_dataloader(fname_train=self.fname_train, 
                                                                             data_path=self.data_path, 
                                                                             train_bs=self.train_bs,
-                                                                            val_bs=self.val_bs)
-        self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d)" \
+                                                                            val_bs=self.val_bs, 
+                                                                            train_perc=self.train_perc, 
+                                                                            save_base_path=self.save_base_path)
+        if self.train_perc is None:
+            train_perc = 100
+        else:
+            train_perc = self.train_perc
+        self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d_percTrain_%s)" \
                                         % (self.save_base_path, 
                                            self.lr, 
-                                           self.train_bs)
+                                           self.train_bs,
+                                           str(train_perc))
         return
     
     def _save_checkpoint(self):
@@ -549,13 +575,16 @@ class Trainer_Vanilla():
                 self._save_checkpoint()
     
     @staticmethod
-    def cifar_dataloader(fname_train: float, data_path, train_bs=128, val_bs=100):
+    def cifar_dataloader(fname_train: float, data_path, save_base_path, train_perc, train_bs=128, val_bs=100):
         """
         @param bs: batch size
         @param labelled_perc: percentage of labelled data
         """
-        trainset = CIFAR10_train(root = data_path)
-        testset = CIFAR10_test(root = data_path)
+        if train_perc is not None:
+            trainset, testset = get_train_test_sets(fname_train, base_path=save_base_path)
+        else:  # if train_perc is None meaning if it's using 100% of data 
+            trainset = CIFAR10_train(root = data_path)
+            testset = CIFAR10_test(root = data_path)
 
         trainloader = torch.utils.data.DataLoader(trainset, batch_size=train_bs, shuffle=True, num_workers=16, pin_memory=True)
         testloader = torch.utils.data.DataLoader(testset, batch_size=val_bs, shuffle=False, num_workers=8, pin_memory=True)
