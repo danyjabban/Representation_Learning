@@ -21,11 +21,20 @@ if __name__ == '__main__':
     parser.add_argument('-k', '--k_img_per_cat', type=int, required=True)
     parser.add_argument('-f', '--freeze', type=int, required=True)
     parser.add_argument('-e', '--epoch_rotnet', type=int, required=True)
+    parser.add_argument('-b', '--batch_size', type=int, required=True)
     parser.add_argument('-l', '--lin_eval', type=str, required=True)
     parser.add_argument('-n', '--base_path', type=str, required=True)
     parser.add_argument('-t', '--type_non_linear', type=str, required=True)
     args = parser.parse_args()
-    rotnet_model_pth = f'{args.base_path}/epoch_{args.epoch_rotnet}_bs_128_lr_0.0008_reg_0.0005.pt'
+    lr = .1
+    if args.epoch_rotnet > 60:
+        lr /= 5
+    if args.epoch_rotnet > 120:
+        lr /= 5
+    if args.epoch_rotnet > 160:
+        lr /= 5
+    print(f'lr: {lr}')
+    rotnet_model_pth = f'{args.base_path}/epoch_{args.epoch_rotnet}_bs_{args.batch_size}_lr_{lr}_reg_0.0005.pt'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     save_base_path = './save_models/RotNet_LinEval_logs'
     os.makedirs(save_base_path, exist_ok=True)
@@ -38,7 +47,7 @@ if __name__ == '__main__':
         freeze = False
     else:
         freeze = True
-    rotnet_params = {'epoch': args.epoch_rotnet, 'bs': 128, 'lr': .1}
+    rotnet_params = {'epoch': args.epoch_rotnet, 'bs': args.batch_size, 'lr': .1}
     if args.type_non_linear == 'fc':
         type_class = 'mult_fc'
         if lin_eval_flag == '1':
@@ -51,6 +60,7 @@ if __name__ == '__main__':
         if lin_eval_flag == '2' or lin_eval_flag == '3' or lin_eval_flag == '4':
             nChannels = 192
         type_class = 'NIN_conv'
+    
     classifier_model = NonLinearClassifier(type_class=type_class, num_classes=10,
                                            nChannels=nChannels).to(device)
     trainer = RotNetLinEvalTrainer(rotnet_model=rotnet_model, classifier_model=classifier_model,

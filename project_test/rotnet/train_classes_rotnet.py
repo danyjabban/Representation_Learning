@@ -239,7 +239,10 @@ class RotNetLinEvalTrainer():
                 best_acc = val_acc
                 self._save_checkpoint(save_base_path)
         print(f'Best Test Accuracy: {best_acc}')
-            
+        fname = f'{save_base_path}/RotNetLinEval(e_{self.rotnet_params["epoch"]}_bs_{self.rotnet_params["bs"]}_head_{self.nonlin}).txt'
+        fptr = open(fname, 'w')
+        fptr.write(f'Accuracy: {best_acc}\n')
+        fptr.close()
     def cifar_dataloader_lineval_rotnet(self):
         # TODO: fine tuning subsample thing!
         #
