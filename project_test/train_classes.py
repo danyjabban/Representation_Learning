@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from data_utils import *
 
-from prune_utils import prune_net
+from prune_utils import global_prune_by_percentage
 
 
 class Trainer_wo_DDP():
@@ -260,12 +260,11 @@ class Trainer_wo_DDP():
 
 
 class Trainer_FineTune():
-    def __init__(self, model, which_device, batch_size, lr, reg, resnet_params, device,
+    def __init__(self, model, which_device, batch_size, lr, reg, resnet_params, 
                  labelled_perc, save_base_path: str, log_every_n=50, write=True, 
                  prune: bool = False, prune_percent: float = -1, Nbits=None):
         super().__init__()
         self.Nbits = Nbits
-        self.which_device = device
         self.model = model
         self.which_device = which_device
         self.acc_steps = max(1, int(batch_size / 512))
@@ -295,7 +294,8 @@ class Trainer_FineTune():
         self.prune_percent = prune_percent
         if self.prune: 
             assert prune_percent != -1, "prune=True but prune_percent=-1 which is invalid"
-            prune_net(net=self.model, q_val=self.prune_percent, device=which_device, verbose=False)
+            # prune_net(net=self.model, q_val=self.prune_percent, device=which_device, verbose=False)
+            # use global iterative prune, so pruning isn't applied here
         self.save_name = "%s/ResNet(epoch_%d_bs_%d_lr_%g_embed_dim_%d)_Tune(lr_%g_bs_%d_percTrain_%g_prune_%g_nb_%s)" \
                                         % (self.save_base_path, 
                                            int(self.resnet_params['epoch']), 
@@ -314,7 +314,7 @@ class Trainer_FineTune():
         torch.save(self.model.state_dict(), self.save_name + ".pt")
         return
 
-    def _run_epoch(self):
+    def _run_epoch(self, train_prune):
         """
         Start the training code.
         """
@@ -348,8 +348,8 @@ class Trainer_FineTune():
             if (batch_idx + 1) % self.acc_steps == 0 or (batch_idx + 1 == len(self.trainloader)):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
-                if self.prune:
-                    for name,layer in self.model.named_modules():
+                if train_prune:
+                    for name, layer in self.model.named_modules():
                         if (isinstance(layer, nn.Conv2d) or isinstance(layer, nn.Linear)) and 'downsample' not in name:
                             # Your code here: Use weight_mask to make sure zero elements remains zero                    
                             layer.weight.data = layer.weight.data.clone().detach().requires_grad_(True) * weight_mask[name]
@@ -386,6 +386,7 @@ class Trainer_FineTune():
         return test_loss / (num_val_steps), val_acc
 
     def train(self, max_epochs: int):
+        self.max_epochs = max_epochs
         best_acc = 0
         self.start = time.time()
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=max_epochs, verbose=False)
@@ -396,7 +397,14 @@ class Trainer_FineTune():
         self.optimizer.zero_grad()  # just in case, since I moved self.optimizer.zero_grad() to bottom of 1x iteration 
         # in _run_epoch
         for epoch in tqdm(range(max_epochs), desc='ResNet_Tune_bs_%d' % (self.batch_size * self.acc_steps)):
-            val_loss, val_acc = self._run_epoch()  # whether optimizer step happens is determined by batch_idx, not epoch
+            q = (epoch + 1) *  (self.prune_percent / (self.max_epochs / 2))
+            if epoch < int(self.max_epochs / 2):
+                print(q)
+                global_prune_by_percentage(self.model, q=q, device=self.which_device)
+            if epoch < int(self.max_epochs / 2) - 1:
+                val_loss, val_acc = self._run_epoch(train_prune=False)
+            else:
+                val_loss, val_acc = self._run_epoch(train_prune=True)
             if self.write:
                 f_ptr = open(file_name, 'a')
                 f_ptr.write("%d,%.6f,%.6f\n" % (epoch, val_loss, val_acc))
@@ -404,6 +412,9 @@ class Trainer_FineTune():
             if best_acc < val_acc:  # note: since counting from 0 -> when saving add 1.
                 best_acc = val_acc
                 self._save_checkpoint()
+        if self.prune:  # save last checkpoint when global iterative prune.
+            self._save_checkpoint()
+        return
     
     @staticmethod
     def cifar_dataloader_tune(bs: int, fname_train: float, save_base_path):
@@ -449,11 +460,10 @@ class Trainer_Vanilla():
                                                                             data_path=self.data_path, 
                                                                             train_bs=self.train_bs,
                                                                             val_bs=self.val_bs)
-        self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d_prune_%d)" \
+        self.save_name = "%s/ResNet_vanilla(lr_%g_bs_%d)" \
                                         % (self.save_base_path, 
                                            self.lr, 
-                                           self.train_bs, 
-                                           int(self.prune))
+                                           self.train_bs)
         return
     
     def _save_checkpoint(self):
