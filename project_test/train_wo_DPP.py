@@ -9,8 +9,6 @@ import torchvision
 import torch.nn as nn
 import torch.optim as optim
 
-from lars.lars import LARS
-
 from FP_layers import *
 
 # from resnet import ResNetCIFAR, ContrastiveLoss
